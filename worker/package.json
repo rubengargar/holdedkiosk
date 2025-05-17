@@ -1,0 +1,13 @@
+{
+  "name": "holded-proxy-worker",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "deploy": "wrangler publish"
+  },
+  "devDependencies": {
+    "typescript": "^5.1.3",
+    "@cloudflare/workers-types": "^4.20230503.0"
+  }
+}

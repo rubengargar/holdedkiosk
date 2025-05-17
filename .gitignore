@@ -1,0 +1,4 @@
+frontend/.env
+frontend/node_modules/
+worker/node_modules/
+

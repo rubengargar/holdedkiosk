@@ -1,0 +1,9 @@
+name = "holded-proxy-worker"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+type = "esm"
+
+[build]
+command = "npm install && npm run build"
+[build.upload]
+format = "service-worker"
