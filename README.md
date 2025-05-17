@@ -1,6 +1,13 @@
 # Holded Kiosk
 
-A monorepo application designed to provide a kiosk mode for Holded team capabilities. It uses a Cloudflare Worker as a backend proxy to communicate with the Holded API and a Vue.js frontend for the user interface. This application allows users to list employees, and perform clock-in and clock-out actions. 
+A monorepo application designed to provide a kiosk mode for Holded team capabilities for clocking employees. This application allows users to list employees, and perform clock-in and clock-out actions. 
+
+It uses a Cloudflare Worker as a backend proxy to communicate with the Holded API and a Vue.js frontend for the user interface. 
+
+## Screenshot
+
+![Holded Kiosk Screenshot](/screenshot.png)
+
 
 # BE AWARE
 The Holded API token is stored locally in the browser's `localStorage`. Be aware of the security implications of storing sensitive information in the browser's `localStorage`.
@@ -17,6 +24,7 @@ At the moment, there is no encryption or protection for the token. Neither PIN o
 *   Responsive interface for kiosk usage, optimized for touchscreen devices as iPad Mini.
 *   Search and colored avatar for each employee.
 *   Quick view of current office status
+*   Dark mode support (light, dark, and system preference)
 
 ## To Do
 *  Separate by workplaces

@@ -1,4 +1,9 @@
 frontend/.env
 frontend/node_modules/
+frontend/.vite
 worker/node_modules/
+.DS_Store
+absolute
+
+
 
