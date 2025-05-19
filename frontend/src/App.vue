@@ -172,7 +172,8 @@ async function loadDataForConfiguredToken() {
   console.log('loadDataForConfiguredToken: Loading data with token', configuredToken.value)
   loading.value = true
   error.value = ''
-  employees.value = []
+  // No limpiamos employees.value aquí para que la UI no parpadee si es un error temporal
+  // y los datos anteriores aún son visibles. Se limpiarán si la carga es exitosa con nuevos datos.
 
   try {
     const emps = await getEmployees()
@@ -182,7 +183,7 @@ async function loadDataForConfiguredToken() {
       const activeEmployees = emps.filter(e => {
         const isTerminated = e.terminated !== null && e.terminated !== undefined && e.terminated !== '';
         const hasValidContract = e.currentContract && typeof e.currentContract === 'object' && !Array.isArray(e.currentContract);
-        return !isTerminated && hasValidContract; // MODIFICADO: Filtro reactivado
+        return !isTerminated && hasValidContract;
       });
       console.log('loadDataForConfiguredToken: Active employees after filter:', activeEmployees);
       
@@ -194,17 +195,19 @@ async function loadDataForConfiguredToken() {
         trackedTimeToday: '00:00'
       }))
       await Promise.all(employees.value.map(emp => fetchEmployeeStatus(emp)))
-      employees.value.sort((a, b) => a.name.localeCompare(b.name)); // AÑADIDO: Ordenar alfabéticamente
+      employees.value.sort((a, b) => a.name.localeCompare(b.name));
     } else {
       console.log('loadDataForConfiguredToken: No employees found or empty response.')
+      employees.value = [] // Limpiar si la respuesta es vacía pero exitosa
     }
   } catch (e: any) {
-    error.value = `Error cargando empleados: ${e.message}. Verifique su token.`
+    // MODIFICADO: No eliminamos el token aquí si ya estaba configurado.
+    // Esto permite reintentos si fue un error de red temporal.
+    // El usuario puede cambiar el token manualmente si es realmente incorrecto.
+    error.value = `Error al cargar datos: ${e.message}. Verifique su conexión o el token.`;
     console.error('Error in loadDataForConfiguredToken:', e)
-    // Si falla la carga con un token que se suponía válido, limpiamos para que el usuario reintente.
-    localStorage.removeItem('holded_token')
-    configuredToken.value = null
-    employees.value = []
+    // No limpiamos configuredToken.value ni localStorage aquí.
+    // employees.value no se limpia para mantener los datos anteriores si es un error temporal.
   } finally {
     loading.value = false
     console.log('loadDataForConfiguredToken: Finished loading.')
@@ -223,6 +226,7 @@ async function handleTokenSubmission() {
   error.value = ''
   const currentTokenToTest = tokenInput.value.trim()
   
+  // Guardamos temporalmente en localStorage para probarlo
   localStorage.setItem('holded_token', currentTokenToTest)
   console.log('handleTokenSubmission: localStorage set with token for testing:', currentTokenToTest)
   
@@ -231,10 +235,10 @@ async function handleTokenSubmission() {
     const emps = await getEmployees() 
     console.log('handleTokenSubmission: getEmployees() succeeded for validation. Response:', emps)
     
-    configuredToken.value = currentTokenToTest
+    // Si getEmployees() es exitoso, el token es válido y lo configuramos permanentemente.
+    configuredToken.value = currentTokenToTest 
     
     if (emps && emps.length > 0) {
-       // Filtro para empleados activos (similar a loadDataForConfiguredToken)
       const activeEmployees = emps.filter(e => {
         const isTerminated = e.terminated !== null && e.terminated !== undefined && e.terminated !== '';
         const hasValidContract = e.currentContract && typeof e.currentContract === 'object' && !Array.isArray(e.currentContract);
@@ -250,16 +254,17 @@ async function handleTokenSubmission() {
         trackedTimeToday: '00:00'
       }))
       await Promise.all(employees.value.map(emp => fetchEmployeeStatus(emp)))
-      employees.value.sort((a, b) => a.name.localeCompare(b.name)); // AÑADIDO: Ordenar alfabéticamente
+      employees.value.sort((a, b) => a.name.localeCompare(b.name));
     } else {
       console.log('handleTokenSubmission: No employees found after token validation, but token seems valid.')
       employees.value = []
     }
     
-    tokenInput.value = ''
+    tokenInput.value = '' // Limpiar input solo si el token es válido
   } catch (e: any) {
     error.value = `Token inválido o error de red: ${e.message}`
     console.error('Error in handleTokenSubmission (getEmployees failed for validation):', e)
+    // Si falla la validación del NUEVO token, lo eliminamos de localStorage y reseteamos configuredToken.
     localStorage.removeItem('holded_token')
     configuredToken.value = null
     employees.value = []
