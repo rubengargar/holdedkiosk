@@ -1,4 +1,4 @@
-const WORKER_BASE = import.meta.env.VITE_WORKER_BASE
+const WORKER_BASE = import.meta.env.VITE_WORKER_BASE?.trim()
 
 export interface EmployeeDashboard {
   id: string
@@ -12,6 +12,14 @@ function getStoredToken(): string {
   const token = localStorage.getItem('holded_token')
   if (!token) throw new Error('No token stored')
   return token
+}
+
+function getWorkerBase(): string {
+  if (!WORKER_BASE) {
+    throw new Error('VITE_WORKER_BASE no está configurado en frontend/.env')
+  }
+
+  return WORKER_BASE
 }
 
 function getRequestHeaders(): HeadersInit {
@@ -32,7 +40,7 @@ async function parseJsonResponse<T>(res: Response, fallbackMessage: string): Pro
 
 export async function getEmployeeDashboard(forceRefresh = false): Promise<EmployeeDashboard[]> {
   const search = forceRefresh ? '?forceRefresh=1' : ''
-  const res = await fetch(`${WORKER_BASE}/api/dashboard${search}`, {
+  const res = await fetch(`${getWorkerBase()}/api/dashboard${search}`, {
     headers: getRequestHeaders()
   })
 
@@ -40,7 +48,7 @@ export async function getEmployeeDashboard(forceRefresh = false): Promise<Employ
 }
 
 async function postEmployeeAction(employeeId: string, action: 'clockin' | 'clockout' | 'pause' | 'unpause') {
-  const res = await fetch(`${WORKER_BASE}/api/employees/${employeeId}/${action}`, {
+  const res = await fetch(`${getWorkerBase()}/api/employees/${employeeId}/${action}`, {
     method: 'POST',
     headers: getRequestHeaders()
   })
