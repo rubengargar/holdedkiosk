@@ -1,4 +1,4 @@
 name = "holded-proxy-worker"
-main = "src/index.ts"
+main = "worker/src/index.ts"
 compatibility_date = "2025-01-01"
 workers_dev = true

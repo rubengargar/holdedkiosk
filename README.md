@@ -78,6 +78,22 @@ name = "your-unique-worker-name" # Change this if needed
 wrangler deploy
 ```
 After successful deployment, Wrangler will output the URL of your worker (e.g., https://your-unique-worker-name.your-subdomain.workers.dev ). Copy this URL , as you'll need it for the frontend configuration.
+
+#### 2.2 Automatic deploys from Cloudflare Workers Builds
+
+If you connect this repository directly to Cloudflare Workers Builds from GitHub, configure it from the repository root with:
+
+```text
+Root directory: /
+Build command: None
+Deploy command: npx wrangler deploy
+Version command: npx wrangler versions upload
+Production branch: main
+```
+
+This repository includes a root `wrangler.toml` that points to `worker/src/index.ts`, so the deploy command works correctly from the monorepo root.
+
+If you prefer, you can still deploy manually from `worker/` using `worker/wrangler.toml`.
 ### 3. Configure the Frontend
 ```bash
 cd ../frontend
