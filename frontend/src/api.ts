@@ -1,75 +1,65 @@
 const WORKER_BASE = import.meta.env.VITE_WORKER_BASE
 
-export async function getEmployees(): Promise<any[]> {
+export interface EmployeeDashboard {
+  id: string
+  name: string
+  isClockedIn: boolean
+  isPaused: boolean
+  trackedTimeToday: string
+}
+
+function getStoredToken(): string {
   const token = localStorage.getItem('holded_token')
   if (!token) throw new Error('No token stored')
+  return token
+}
 
-  const res = await fetch(`${WORKER_BASE}/api/employees`, {
-    headers: {
-      'X-Holded-API-Key': token
-    }
-  })
+function getRequestHeaders(): HeadersInit {
+  return {
+    'X-Holded-API-Key': getStoredToken(),
+    'X-Client-Timezone': Intl.DateTimeFormat().resolvedOptions().timeZone
+  }
+}
 
+async function parseJsonResponse<T>(res: Response, fallbackMessage: string): Promise<T> {
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`Error fetching employees: ${res.status} - ${text}`)
+    throw new Error(`${fallbackMessage}: ${res.status} - ${text}`)
   }
 
   return res.json()
 }
 
-export async function getEmployeeTimes(employeeId: string) {
-  const token = localStorage.getItem('holded_token')
-  if (!token) throw new Error('No token stored')
-
-  const res = await fetch(`${WORKER_BASE}/api/employees/${employeeId}/times`, {
-    headers: {
-      'X-Holded-API-Key': token
-    }
+export async function getEmployeeDashboard(forceRefresh = false): Promise<EmployeeDashboard[]> {
+  const search = forceRefresh ? '?forceRefresh=1' : ''
+  const res = await fetch(`${WORKER_BASE}/api/dashboard${search}`, {
+    headers: getRequestHeaders()
   })
 
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Error fetching employee times: ${res.status} - ${text}`)
-  }
-
-  return res.json()
+  return parseJsonResponse<EmployeeDashboard[]>(res, 'Error fetching dashboard')
 }
 
-export async function clockIn(employeeId: string) {
-  const token = localStorage.getItem('holded_token')
-  if (!token) throw new Error('No token stored')
-
-  const res = await fetch(`${WORKER_BASE}/api/employees/${employeeId}/clockin`, {
+async function postEmployeeAction(employeeId: string, action: 'clockin' | 'clockout' | 'pause' | 'unpause') {
+  const res = await fetch(`${WORKER_BASE}/api/employees/${employeeId}/${action}`, {
     method: 'POST',
-    headers: {
-      'X-Holded-API-Key': token
-    }
+    headers: getRequestHeaders()
   })
 
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Error clocking in: ${res.status} - ${text}`)
-  }
-
-  return res.json()
+  return parseJsonResponse<EmployeeDashboard>(res, `Error performing ${action}`)
 }
 
-export async function clockOut(employeeId: string) {
-  const token = localStorage.getItem('holded_token')
-  if (!token) throw new Error('No token stored')
+export function clockIn(employeeId: string) {
+  return postEmployeeAction(employeeId, 'clockin')
+}
 
-  const res = await fetch(`${WORKER_BASE}/api/employees/${employeeId}/clockout`, {
-    method: 'POST',
-    headers: {
-      'X-Holded-API-Key': token
-    }
-  })
+export function clockOut(employeeId: string) {
+  return postEmployeeAction(employeeId, 'clockout')
+}
 
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Error clocking out: ${res.status} - ${text}`)
-  }
+export function pauseEmployee(employeeId: string) {
+  return postEmployeeAction(employeeId, 'pause')
+}
 
-  return res.json()
+export function unpauseEmployee(employeeId: string) {
+  return postEmployeeAction(employeeId, 'unpause')
 }
