@@ -1,5 +1,6 @@
 const EMPLOYEES_TTL_MS = 24 * 60 * 60 * 1000;
 const STATUS_TTL_MS = 30 * 60 * 1000;
+const MAX_STATUS_REFRESHES_PER_REQUEST = 20;
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -145,6 +146,15 @@ function summarizeEmployeeTimes(timesResponse, employee, timezone) {
         trackedTimeToday: `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`,
     };
 }
+function getDefaultEmployeeSummary(employee) {
+    return {
+        id: employee.id,
+        name: getEmployeeName(employee),
+        isClockedIn: false,
+        isPaused: false,
+        trackedTimeToday: '00:00',
+    };
+}
 async function getActiveEmployees(request, holdedApiKey, forceRefresh) {
     const tokenHash = await hashValue(holdedApiKey);
     const cacheKey = `employees/${tokenHash}`;
@@ -202,6 +212,48 @@ async function getEmployeeStatusSummary(request, holdedApiKey, employee, timezon
         throw error;
     }
 }
+async function getEmployeeStatusCacheEntry(request, holdedApiKey, employee, timezone) {
+    const tokenHash = await hashValue(holdedApiKey);
+    const timezoneHash = await hashValue(timezone);
+    const cacheKey = `status/${tokenHash}/${timezoneHash}/${employee.id}`;
+    return {
+        employee,
+        envelope: await readCacheEnvelope(request, cacheKey),
+    };
+}
+function sortEntriesForRefresh(entries) {
+    return [...entries].sort((a, b) => {
+        if (!a.envelope && b.envelope)
+            return -1;
+        if (a.envelope && !b.envelope)
+            return 1;
+        return (a.envelope?.cachedAt || 0) - (b.envelope?.cachedAt || 0);
+    });
+}
+async function buildDashboardSummaries(request, holdedApiKey, employees, timezone, forceRefresh) {
+    const cacheEntries = await Promise.all(employees.map((employee) => getEmployeeStatusCacheEntry(request, holdedApiKey, employee, timezone)));
+    const summariesById = new Map();
+    const staleOrMissingEntries = [];
+    for (const entry of cacheEntries) {
+        if (entry.envelope) {
+            summariesById.set(entry.employee.id, entry.envelope.data);
+            if (!isCacheFresh(entry.envelope, STATUS_TTL_MS) || forceRefresh) {
+                staleOrMissingEntries.push(entry);
+            }
+            continue;
+        }
+        summariesById.set(entry.employee.id, getDefaultEmployeeSummary(entry.employee));
+        staleOrMissingEntries.push(entry);
+    }
+    const refreshTargets = sortEntriesForRefresh(staleOrMissingEntries).slice(0, MAX_STATUS_REFRESHES_PER_REQUEST);
+    if (refreshTargets.length > 0) {
+        const refreshedSummaries = await Promise.all(refreshTargets.map(({ employee }) => getEmployeeStatusSummary(request, holdedApiKey, employee, timezone, true)));
+        for (const summary of refreshedSummaries) {
+            summariesById.set(summary.id, summary);
+        }
+    }
+    return employees.map((employee) => summariesById.get(employee.id) || getDefaultEmployeeSummary(employee));
+}
 async function postHoldedTimeAction(holdedApiKey, employeeId, action) {
     return fetchHoldedJson(holdedApiKey, `/api/team/v1/employees/${employeeId}/times/${action}`, {
         method: 'POST',
@@ -232,7 +284,7 @@ export default {
         if (url.pathname === '/api/dashboard' && request.method === 'GET') {
             try {
                 const employees = await getActiveEmployees(request, holdedApiKey, forceRefresh);
-                const employeeSummaries = await Promise.all(employees.map((employee) => getEmployeeStatusSummary(request, holdedApiKey, employee, timezone, forceRefresh)));
+                const employeeSummaries = await buildDashboardSummaries(request, holdedApiKey, employees, timezone, forceRefresh);
                 employeeSummaries.sort((a, b) => a.name.localeCompare(b.name));
                 return jsonResponse(employeeSummaries);
             }
