@@ -480,6 +480,7 @@ footer p { max-width: 46rem; }
           <li>En <strong>Web Auto Reload</strong>, activa <strong>Auto Reload on Network Reconnect</strong> para que se recupere sola si cae el wifi.</li>
           <li>En esa misma sección, deja desactivados <strong>Delete Webstorage on Auto Reload</strong> y <strong>Delete Cookies on Auto Reload</strong>. El kiosko guarda sus empresas en el almacenamiento del navegador, y borrarlo obliga a configurarlo de nuevo.</li>
           <li>Activa <strong>Kiosk Mode</strong> con un PIN para que nadie salga del navegador ni abra otras aplicaciones.</li>
+          <li>Si has protegido el kiosko con contraseña, escríbela en <strong>Username</strong> y <strong>Password</strong>, en <strong>Web Content Settings</strong>. La tablet entrará sola.</li>
         </ol>
       </div>
       <div class="aside">
@@ -525,6 +526,7 @@ footer p { max-width: 46rem; }
         <ul>
           <li>El Worker devuelve a la tablet solo el id y el nombre de cada empleado, y el nombre y el logo de la empresa. Nunca IBAN, número de la Seguridad Social, salario ni dirección.</li>
           <li>La clave de Holded no se queda en la tablet. El Worker la cifra con un secreto que solo él tiene y la tablet guarda únicamente esa versión sellada, que no sirve para llamar a Holded directamente.</li>
+          <li>Contraseña opcional para todo el kiosko. Si la activas, nadie abre la página ni usa el Worker sin ella, aunque conozca la dirección.</li>
           <li>El código del Worker no escribe registros ni guarda fichajes.</li>
           <li>Límite aproximado de 120 peticiones por minuto por IP, y una Content-Security-Policy estricta en la pantalla.</li>
         </ul>
@@ -533,7 +535,8 @@ footer p { max-width: 46rem; }
         <h3>Lo que debes saber antes de colgarla</h3>
         <ul>
           <li>No hay PIN por empleado. Quien tenga delante la tablet puede fichar por otra persona.</li>
-          <li>La dirección del kiosko no tiene contraseña. Quien copie la clave sellada de la tablet puede usar tu Worker desde otro sitio para ver nombres y fichar.</li>
+          <li>Sin la contraseña opcional, la dirección del kiosko es pública: quien copie la clave sellada de la tablet puede usar tu Worker desde otro sitio para ver nombres y fichar.</li>
+          <li>La contraseña del kiosko se guarda en el navegador de la tablet. Quien controle la tablet por completo puede extraerla. Elige una larga y aleatoria.</li>
           <li>La clave viaja sin cifrar por dentro de la conexión segura una vez, al escribirla. Quien administre tu Worker puede leerla.</li>
           <li>Usa una clave dedicada, solo con los permisos de la tabla, y una tablet que controles.</li>
           <li>Si vienes de una versión anterior, la clave ya estuvo guardada sin cifrar en la tablet. Tras actualizar, recarga cada tablet, revoca esa clave en Holded y crea una nueva.</li>
