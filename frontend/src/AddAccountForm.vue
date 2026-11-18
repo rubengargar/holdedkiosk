@@ -51,8 +51,18 @@ async function onSubmit() {
       v-model="token"
       type="password"
       autocomplete="off"
-      class="border p-3 mb-3 w-full rounded-md focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+      :aria-describedby="`${idPrefix}-scopes`"
+      class="border p-3 mb-2 w-full rounded-md focus:ring-2 focus:ring-blue-600 focus:border-transparent"
     />
+    <div :id="`${idPrefix}-scopes`" class="text-xs text-gray-500 mb-3">
+      <p class="mb-1">El token necesita estos permisos (scopes) en Holded:</p>
+      <ul class="space-y-0.5">
+        <li><code class="text-gray-700">team:employees.read</code> — listar empleados</li>
+        <li><code class="text-gray-700">team:time-tracking.read</code> — ver fichajes del día</li>
+        <li><code class="text-gray-700">team:time-tracking.write</code> — fichar entrada, salida y pausas</li>
+      </ul>
+      <p class="mt-1">No hace falta ningún otro permiso.</p>
+    </div>
     <button
       type="submit"
       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-md w-full font-semibold transition-colors disabled:opacity-60"
