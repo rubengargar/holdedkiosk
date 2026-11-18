@@ -7,13 +7,13 @@ import {
   saveActiveAccountId,
   type Account
 } from './accounts'
-import { applyClock, buildStatuses, dayStart, type ClockAction } from './board'
+import { applyClock, buildStatuses, dayStart, isStaleTimes } from './board'
 import {
-  clockIn,
-  clockOut,
+  clock as clockRequest,
   describeError,
   getEmployees,
   getTimes,
+  type ClockAction,
   type Employee,
   type TimeEntry
 } from './api'
@@ -26,6 +26,7 @@ export interface AccountState {
   loading: boolean
   error: string
   clocking: Record<string, boolean>
+  lastActionAt: number | null
 }
 
 type SyncMode = 'poll' | 'view' | 'manual'
@@ -43,7 +44,8 @@ function emptyState(): AccountState {
     timesFetchedAt: null,
     loading: false,
     error: '',
-    clocking: {}
+    clocking: {},
+    lastActionAt: null
   }
 }
 
@@ -94,7 +96,9 @@ export function useKiosk() {
     }
     const loadTimes = async () => {
       try {
-        state.entries = await getTimes(account.token, dayStart(at))
+        const entries = await getTimes(account.token, dayStart(at))
+        if (isStaleTimes(at, state.lastActionAt)) return
+        state.entries = entries
         state.timesFetchedAt = Date.now()
       } catch (e) {
         state.error = describeError(e)
@@ -156,8 +160,10 @@ export function useKiosk() {
     state.error = ''
 
     try {
-      await (action === 'clock-in' ? clockIn : clockOut)(account.token, employee.id)
-      state.entries = applyClock(state.entries, employee.id, action, Date.now())
+      await clockRequest(account.token, employee.id, action)
+      const doneAt = Date.now()
+      state.entries = applyClock(state.entries, employee.id, action, doneAt)
+      state.lastActionAt = doneAt
     } catch (e) {
       state.error = `Error al fichar a ${employee.name}: ${describeError(e)}`
     } finally {

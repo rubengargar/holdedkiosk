@@ -1,11 +1,10 @@
-import type { TimeEntry } from './api'
+import type { ClockAction, TimeEntry } from './api'
 
 export interface EmployeeStatus {
   runningSince: number | null
   completedMs: number
+  paused: boolean
 }
-
-export type ClockAction = 'clock-in' | 'clock-out'
 
 export function dayStart(now: number): number {
   const d = new Date(now)
@@ -19,12 +18,13 @@ export function buildStatuses(entries: TimeEntry[], dayStartMs: number): Map<str
   for (const entry of entries) {
     let status = statuses.get(entry.employeeId)
     if (!status) {
-      status = { runningSince: null, completedMs: 0 }
+      status = { runningSince: null, completedMs: 0, paused: false }
       statuses.set(entry.employeeId, status)
     }
 
     if (entry.end == null) {
       status.runningSince = entry.start
+      status.paused = entry.paused
     } else if (entry.start >= dayStartMs) {
       status.completedMs += entry.end - entry.start
     }
@@ -55,8 +55,16 @@ export function applyClock(
   const isRunning = (entry: TimeEntry) => entry.employeeId === employeeId && entry.end == null
 
   if (action === 'clock-in') {
-    return entries.some(isRunning) ? entries : [...entries, { employeeId, start: now, end: null }]
+    return entries.some(isRunning) ? entries : [...entries, { employeeId, start: now, end: null, paused: false }]
   }
 
-  return entries.map(entry => (isRunning(entry) ? { ...entry, end: now } : entry))
+  return entries.map(entry => {
+    if (!isRunning(entry)) return entry
+    if (action === 'clock-out') return { ...entry, end: now, paused: false }
+    return { ...entry, paused: action === 'pause' }
+  })
+}
+
+export function isStaleTimes(requestedAt: number, lastActionAt: number | null): boolean {
+  return lastActionAt != null && requestedAt <= lastActionAt
 }

@@ -9,7 +9,10 @@ export interface TimeEntry {
   employeeId: string
   start: number
   end: number | null
+  paused: boolean
 }
+
+export type ClockAction = 'clock-in' | 'clock-out' | 'pause' | 'unpause'
 
 export class ApiError extends Error {
   readonly status: number
@@ -57,12 +60,8 @@ export function getTimes(token: string, since: number): Promise<TimeEntry[]> {
   return request<TimeEntry[]>(token, `/api/times?since=${since}`)
 }
 
-export function clockIn(token: string, employeeId: string): Promise<{ ok: true }> {
-  return request(token, `/api/employees/${encodeURIComponent(employeeId)}/clock-in`, 'POST')
-}
-
-export function clockOut(token: string, employeeId: string): Promise<{ ok: true }> {
-  return request(token, `/api/employees/${encodeURIComponent(employeeId)}/clock-out`, 'POST')
+export function clock(token: string, employeeId: string, action: ClockAction): Promise<{ ok: true }> {
+  return request(token, `/api/employees/${encodeURIComponent(employeeId)}/${action}`, 'POST')
 }
 
 export function describeError(e: unknown): string {

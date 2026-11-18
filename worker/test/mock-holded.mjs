@@ -59,7 +59,7 @@ function paginate(items, url) {
 }
 
 function route(req, res, url, state) {
-	const clockMatch = /^\/api\/v2\/employees\/([^/]+)\/(clock-in|clock-out)$/.exec(url.pathname);
+	const clockMatch = /^\/api\/v2\/employees\/([^/]+)\/(clock-in|clock-out|pause|unpause)$/.exec(url.pathname);
 
 	if (req.method === 'GET' && url.pathname === '/api/v2/employees') return send(res, 200, paginate(state.employees, url));
 	if (req.method === 'GET' && url.pathname === '/api/v2/employee-times') return send(res, 200, paginate(state.times, url));
@@ -75,6 +75,10 @@ function route(req, res, url, state) {
 			return send(res, 201, { id: created.id });
 		}
 		if (!running) return problem(res, 404, 'Not Found', 'No running time entry');
+		if (action === 'pause' || action === 'unpause') {
+			running.status = action === 'pause' ? 'paused' : 'running';
+			return send(res, 200, { id: running.id });
+		}
 		running.end_at = new Date().toISOString();
 		running.status = 'done';
 		return send(res, 200, { id: running.id });

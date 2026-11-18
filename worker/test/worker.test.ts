@@ -35,11 +35,11 @@ const employee = (id: string, name: string, extra: Record<string, unknown> = {})
 	...extra,
 });
 
-const entry = (employeeId: string, startMs: number, endMs: number | null) => ({
+const entry = (employeeId: string, startMs: number, endMs: number | null, status = endMs === null ? 'running' : 'done') => ({
 	employee_id: employeeId,
 	start_at: new Date(startMs).toISOString(),
 	end_at: endMs === null ? null : new Date(endMs).toISOString(),
-	status: endMs === null ? 'running' : 'done',
+	status,
 });
 
 const call = (path: string, init: RequestInit & { key?: string | null } = {}) => {
@@ -123,8 +123,8 @@ describe('GET /api/times', () => {
 		const body = await (await call(`/api/times?since=${SINCE}`)).json();
 
 		expect(body).toEqual([
-			{ employeeId: ID, start: SINCE + HOUR, end: null },
-			{ employeeId: ID, start: SINCE - 5 * HOUR, end: null },
+			{ employeeId: ID, start: SINCE + HOUR, end: null, paused: false },
+			{ employeeId: ID, start: SINCE - 5 * HOUR, end: null, paused: false },
 		]);
 	});
 
@@ -133,7 +133,23 @@ describe('GET /api/times', () => {
 
 		const body = await (await call(`/api/times?since=${SINCE}`)).json();
 
-		expect(body).toEqual([{ employeeId: ID, start: SINCE + HOUR, end: SINCE + 2 * HOUR }]);
+		expect(body).toEqual([{ employeeId: ID, start: SINCE + HOUR, end: SINCE + 2 * HOUR, paused: false }]);
+	});
+
+	it.each(['paused', 'Paused', 'PAUSED'])('reports a running entry with status %s as paused', async (status) => {
+		stubUpstream(() => page([entry(ID, SINCE + HOUR, null, status)]));
+
+		const body = await (await call(`/api/times?since=${SINCE}`)).json();
+
+		expect(body).toEqual([{ employeeId: ID, start: SINCE + HOUR, end: null, paused: true }]);
+	});
+
+	it('never reports a finished entry as paused', async () => {
+		stubUpstream(() => page([entry(ID, SINCE + HOUR, SINCE + 2 * HOUR, 'paused')]));
+
+		const body = await (await call(`/api/times?since=${SINCE}`)).json();
+
+		expect(body).toEqual([{ employeeId: ID, start: SINCE + HOUR, end: SINCE + 2 * HOUR, paused: false }]);
 	});
 
 	it.each(['', '?since=', '?since=abc', '?since=Infinity'])('answers 400 for a bad since (%s)', async (query) => {
@@ -144,7 +160,7 @@ describe('GET /api/times', () => {
 	});
 });
 
-describe.each(['clock-in', 'clock-out'])('POST /api/employees/:id/%s', (action) => {
+describe.each(['clock-in', 'clock-out', 'pause', 'unpause'])('POST /api/employees/:id/%s', (action) => {
 	const post = (id: string) => call(`/api/employees/${id}/${action}`, { method: 'POST' });
 
 	it('succeeds with { ok: true } and one POST upstream', async () => {

@@ -59,6 +59,7 @@ const rows = computed(() => {
       return {
         ...emp,
         isClockedIn: status?.runningSince != null,
+        isPaused: status?.paused === true,
         tracked: formatHHMM(trackedMs(status, now.value)),
         busy: activeState.value?.clocking[emp.id] === true
       }
@@ -294,12 +295,24 @@ watch(activeId, () => {
               </div>
               <div>
                 <span class="font-medium text-gray-800 text-sm">{{ emp.name }}</span>
-                <span class="text-xs text-gray-500 block">{{ emp.isClockedIn ? 'Fichado' : 'Sin fichar' }}</span>
+                <span class="text-xs text-gray-500 block">{{ emp.isPaused ? 'En pausa' : (emp.isClockedIn ? 'Fichado' : 'Sin fichar') }}</span>
               </div>
             </div>
 
             <div class="flex items-center">
               <span class="text-xs text-gray-600 mr-3">{{ emp.tracked }}</span>
+              <button
+                v-if="emp.isClockedIn"
+                type="button"
+                @click="clock(emp, emp.isPaused ? 'unpause' : 'pause')"
+                :disabled="emp.busy"
+                :class="[
+                  'w-20 h-8 mr-2 flex items-center justify-center rounded-md text-xs font-medium transition-colors disabled:opacity-60',
+                  emp.isPaused ? 'bg-sky-200 hover:bg-sky-300 text-sky-900' : 'bg-slate-200 hover:bg-slate-300 text-slate-800'
+                ]"
+              >
+                {{ emp.busy ? '...' : (emp.isPaused ? 'Reanudar' : 'Pausa') }}
+              </button>
               <button
                 type="button"
                 @click="clock(emp, emp.isClockedIn ? 'clock-out' : 'clock-in')"

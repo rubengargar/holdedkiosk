@@ -1,5 +1,5 @@
 import type { Env } from './env';
-import { HoldedError, clock, listActiveEmployees, listEntriesSince } from './holded';
+import { HoldedError, clock, type ClockAction, listActiveEmployees, listEntriesSince } from './holded';
 
 class HttpError extends Error {
 	constructor(
@@ -25,7 +25,9 @@ interface Route {
 
 const EMPLOYEE_ID = /^[a-f0-9]{24}$/;
 
-const clockRoute = (action: 'clock-in' | 'clock-out'): Route => ({
+const CLOCK_ACTIONS: ClockAction[] = ['clock-in', 'clock-out', 'pause', 'unpause'];
+
+const clockRoute = (action: ClockAction): Route => ({
 	method: 'POST',
 	pattern: new RegExp(`^/api/employees/([^/]+)/${action}$`),
 	handler: async ({ env, key, params: [id] }) => {
@@ -47,8 +49,7 @@ const routes: Route[] = [
 			return listEntriesSince(env, key, sinceMs);
 		},
 	},
-	clockRoute('clock-in'),
-	clockRoute('clock-out'),
+	...CLOCK_ACTIONS.map(clockRoute),
 ];
 
 function corsHeaders(request: Request, env: Env): Headers {

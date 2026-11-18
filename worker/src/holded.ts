@@ -9,6 +9,7 @@ export interface TimeEntry {
 	employeeId: string;
 	start: number;
 	end: number | null;
+	paused: boolean;
 }
 
 export class HoldedError extends Error {
@@ -27,6 +28,8 @@ const MAX_TIME_PAGES = 5;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
+
+export type ClockAction = 'clock-in' | 'clock-out' | 'pause' | 'unpause';
 
 const unexpected = () => new HoldedError(502, 'Unexpected response from Holded');
 
@@ -77,12 +80,16 @@ function parseInstant(value: unknown): number {
 	return ms;
 }
 
+// Unverified: the v2 spec lists only "running, done"; v1 reported "paused" and this assumes v2 does too.
+const isPaused = (status: unknown): boolean => typeof status === 'string' && status.toLowerCase() === 'paused';
+
 function parseEntry(item: unknown): TimeEntry {
 	if (!isRecord(item) || typeof item.employee_id !== 'string') throw unexpected();
 	return {
 		employeeId: item.employee_id,
 		start: parseInstant(item.start_at),
 		end: item.end_at == null ? null : parseInstant(item.end_at),
+		paused: item.end_at == null && isPaused(item.status),
 	};
 }
 
@@ -114,6 +121,6 @@ export async function listEntriesSince(env: Env, key: string, sinceMs: number): 
 	return entries.filter((entry) => entry.start >= sinceMs || entry.end === null);
 }
 
-export async function clock(env: Env, key: string, employeeId: string, action: 'clock-in' | 'clock-out'): Promise<void> {
+export async function clock(env: Env, key: string, employeeId: string, action: ClockAction): Promise<void> {
 	await call(env, key, `/api/v2/employees/${employeeId}/${action}`, 'POST');
 }
