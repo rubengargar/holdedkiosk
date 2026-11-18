@@ -1,4 +1,4 @@
-name = "holded-kiosk"
+name = "kiosk-for-holded"
 main = "worker/src/index.ts"
 compatibility_date = "2026-11-01"
 workers_dev = true

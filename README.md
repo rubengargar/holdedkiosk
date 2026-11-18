@@ -1,4 +1,4 @@
-# Holded Kiosk
+# Kiosk for Holded
 
 Un kiosko de fichaje para tablet que usa Holded: cada persona toca su nombre para fichar entrada, salida, pausa o reanudar.
 
@@ -6,7 +6,7 @@ Un kiosko de fichaje para tablet que usa Holded: cada persona toca su nombre par
 
 ![Tablero del kiosko con cuatro empleados, sus tiempos de hoy y los botones de fichaje](docs/img/board.png)
 
-**In English.** Holded Kiosk is a self-hosted clock-in kiosk for [Holded](https://www.holded.com) (Spanish business software). Staff tap their name on a shared tablet to clock in, clock out, pause and resume. A Cloudflare Worker serves the Vue frontend and proxies Holded API v2. The deploy button clones the repository into your GitHub account and deploys the Worker on your Cloudflare account. The Worker seals each Holded API key with AES-256-GCM and, once it has reloaded this version, the tablet stores only the sealed token, which is useless against Holded directly but works through your Worker from anywhere. The sealing key lives in a KV namespace the deploy button creates for you. There is no per-employee PIN. The sections on security and limits below apply in full. Documentation is in Spanish.
+**In English.** Kiosk for Holded is a self-hosted clock-in kiosk for [Holded](https://www.holded.com) (Spanish business software). Staff tap their name on a shared tablet to clock in, clock out, pause and resume. A Cloudflare Worker serves the Vue frontend and proxies Holded API v2. The deploy button clones the repository into your GitHub account and deploys the Worker on your Cloudflare account. The Worker seals each Holded API key with AES-256-GCM and, once it has reloaded this version, the tablet stores only the sealed token, which is useless against Holded directly but works through your Worker from anywhere. The sealing key lives in a KV namespace the deploy button creates for you. There is no per-employee PIN. The sections on security and limits below apply in full. Documentation is in Spanish.
 
 ## Qué hace
 
@@ -215,7 +215,7 @@ Comprobaciones, desde la raíz: `npm run typecheck`, `npm test` y `npm run build
 | `KIOSK_USER` | Variable del Worker | `kiosk` | Usuario que acepta la autenticación cuando `KIOSK_PASSWORD` está definida |
 | `[[ratelimits]]` | `wrangler.toml` | `limit = 120`, `period = 60` | Peticiones permitidas por IP en el periodo, en segundos, con el binding `RATE_LIMITER` |
 
-El `wrangler.toml` de la raíz es neutro: Worker `holded-kiosk`, sin `ALLOWED_ORIGINS`. Scripts de la raíz: `build`, `deploy`, `dev`, `test`, `typecheck`.
+El `wrangler.toml` de la raíz es neutro: Worker `kiosk-for-holded`, sin `ALLOWED_ORIGINS`. Scripts de la raíz: `build`, `deploy`, `dev`, `test`, `typecheck`.
 
 Para alojar el frontend en otro sitio, compílalo con `VITE_WORKER_BASE` apuntando al Worker, publica `frontend/dist` y añade ese origen a `ALLOWED_ORIGINS`.
 

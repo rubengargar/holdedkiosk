@@ -111,7 +111,7 @@ describe('describeError on a 503', () => {
 
 describe('a 401 from the Worker without a body', () => {
   it('names the kiosk password and asks for a reload, unlike the Holded and sealed-token 401s', async () => {
-    stubResponse(new Response(null, { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="Holded Kiosk"' } }))
+    stubResponse(new Response(null, { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="Kiosk for Holded"' } }))
     const { getEmployees, describeError, ApiError } = await loadApi(undefined)
 
     const error = await getEmployees('k').catch((e: unknown) => e)

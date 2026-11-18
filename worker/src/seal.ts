@@ -3,6 +3,7 @@ import { HttpError } from './errors';
 
 const PREFIX = 'sealed.v1.';
 const CURRENT_NAME = 'sealing-key-current';
+// Frozen wire constant bound into every sealed token already on tablets, not the product name. Changing it invalidates them all.
 const AAD = new TextEncoder().encode('holded-kiosk/v1');
 const IV_BYTES = 12;
 const KEY_BYTES = 32;

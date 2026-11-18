@@ -645,6 +645,26 @@ describe('sealed tokens', () => {
 			expect(authorizations()).toEqual([`Bearer ${PLAIN}`]);
 		});
 
+		it('still unseals a token sealed with the frozen additional data "holded-kiosk/v1"', async () => {
+			const kv = new MemoryKv();
+			const sealingEnv = sealedEnv(kv);
+			const [prefix, version, kid] = (await seal(sealingEnv)).body.token.split('.');
+			const raw = (await kv.get(`sealing-key:${kid}`))!;
+			const bytes = (text: string) => Uint8Array.from(atob(text.replaceAll('-', '+').replaceAll('_', '/')), (c) => c.charCodeAt(0));
+			const b64url = (data: Uint8Array) => btoa(String.fromCharCode(...data)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+			const aesKey = await crypto.subtle.importKey('raw', bytes(raw), 'AES-GCM', false, ['encrypt']);
+			const iv = crypto.getRandomValues(new Uint8Array(12));
+			const additionalData = new TextEncoder().encode('holded-kiosk/v1');
+			const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData }, aesKey, new TextEncoder().encode(PLAIN));
+			const legacy = `${prefix}.${version}.${kid}.${b64url(iv)}.${b64url(new Uint8Array(encrypted))}`;
+			upstreamCalls.length = 0;
+
+			const response = await call('/api/employees', { key: legacy, env: sealingEnv });
+
+			expect(response.status).toBe(200);
+			expect(authorizations()).toEqual([`Bearer ${PLAIN}`]);
+		});
+
 		it('is rejected with 401 and no Holded call when the key stored under its kid is another one', async () => {
 			const other = new MemoryKv();
 			await other.put(`sealing-key:${token.split('.')[2]}`, 'A'.repeat(43));
@@ -838,7 +858,7 @@ describe('kiosk password', () => {
 			const response = await get(path, on);
 
 			expect(response.status).toBe(401);
-			expect(response.headers.get('WWW-Authenticate')).toBe('Basic realm="Holded Kiosk", charset="UTF-8"');
+			expect(response.headers.get('WWW-Authenticate')).toBe('Basic realm="Kiosk for Holded", charset="UTF-8"');
 			expect(await response.text()).toBe('');
 			expect(upstreamCalls).toHaveLength(0);
 			expect(assetRequests).toHaveLength(0);

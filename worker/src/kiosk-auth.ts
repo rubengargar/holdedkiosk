@@ -2,7 +2,7 @@ import type { Env } from './env';
 
 const DEFAULT_USER = 'kiosk';
 
-export const CHALLENGE = 'Basic realm="Holded Kiosk", charset="UTF-8"';
+export const CHALLENGE = 'Basic realm="Kiosk for Holded", charset="UTF-8"';
 
 export const MIN_PASSWORD_LENGTH = 16;
 
