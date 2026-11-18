@@ -12,7 +12,6 @@ const ACCOUNTS_KEY = 'kiosk_accounts'
 const ACTIVE_KEY = 'kiosk_active_account'
 const LEGACY_TOKEN_KEY = 'holded_token'
 const LEGACY_HIDDEN_KEY = 'hidden_employee_ids'
-const TITLE_KEY = 'kiosk_title'
 
 export function newAccountId(): string {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
@@ -58,7 +57,7 @@ export function migrateLegacy(store: KeyValueStore): void {
     const hidden = parseJson(store.getItem(LEGACY_HIDDEN_KEY))
     accounts.push({
       id: newAccountId(),
-      name: store.getItem(TITLE_KEY)?.trim() || 'Empresa 1',
+      name: 'Empresa 1',
       token,
       hiddenEmployeeIds: Array.isArray(hidden) ? hidden.filter((id): id is string => typeof id === 'string') : []
     })

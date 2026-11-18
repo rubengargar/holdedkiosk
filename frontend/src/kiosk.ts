@@ -85,15 +85,20 @@ export function useKiosk() {
     )
   )
 
+  // A response fetched with a token that has since been replaced must not land.
+  function tokenReplaced(account: Account): boolean {
+    return accounts.value.find(a => a.id === account.id)?.token !== account.token
+  }
+
   async function loadTimes(account: Account, state: AccountState, at: number) {
     try {
       const entries = await getTimes(account.token, dayStart(at))
-      if (isStaleTimes(at, state.lastActionAt)) return
+      if (tokenReplaced(account) || isStaleTimes(at, state.lastActionAt)) return
       state.entries = entries
       state.pausedIds = prunePaused(state.pausedIds, entries)
       state.timesFetchedAt = Date.now()
     } catch (e) {
-      state.error = describeError(e)
+      if (!tokenReplaced(account)) state.error = describeError(e)
     }
   }
 
@@ -119,10 +124,12 @@ export function useKiosk() {
 
     const loadEmployees = async () => {
       try {
-        state.employees = sortByName(await getEmployees(account.token))
+        const employees = sortByName(await getEmployees(account.token))
+        if (tokenReplaced(account)) return
+        state.employees = employees
         state.employeesFetchedAt = Date.now()
       } catch (e) {
-        state.error = describeError(e)
+        if (!tokenReplaced(account)) state.error = describeError(e)
       }
     }
 
@@ -190,6 +197,8 @@ export function useKiosk() {
       state.employees = sortByName(employees)
       state.employeesFetchedAt = Date.now()
       state.error = ''
+      const account = accounts.value.find(a => a.id === id)
+      if (account) await loadTimes(account, state, Date.now())
     }
   }
 

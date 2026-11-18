@@ -29,16 +29,11 @@ describe('legacy migration', () => {
     const accounts = loadAccounts(store)
 
     expect(accounts).toHaveLength(1)
-    expect(accounts[0]).toMatchObject({ name: 'Oficina Madrid', token: 'tok-1', hiddenEmployeeIds: ['e1', 'e2'] })
+    expect(accounts[0]).toMatchObject({ name: 'Empresa 1', token: 'tok-1', hiddenEmployeeIds: ['e1', 'e2'] })
+    expect(store.getItem('kiosk_title')).toBe('Oficina Madrid')
     expect(store.getItem('holded_token')).toBeNull()
     expect(store.getItem('hidden_employee_ids')).toBeNull()
     expect(loadAccounts(store)).toEqual(accounts)
-  })
-
-  it('names the account "Empresa 1" without a stored title', () => {
-    const store = memoryStore({ holded_token: 'tok-1' })
-
-    expect(loadAccounts(store)).toMatchObject([{ name: 'Empresa 1', hiddenEmployeeIds: [] }])
   })
 
   it('running twice changes nothing', () => {

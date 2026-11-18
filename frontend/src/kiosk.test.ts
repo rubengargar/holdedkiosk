@@ -325,7 +325,7 @@ describe('accounts', () => {
     expect(kiosk.activeState.value).toBeNull()
   })
 
-  it('changes the token after one successful employees call and keeps the hidden list', async () => {
+  it('changes the token, reloads employees and the day entries, and keeps the hidden list', async () => {
     const kiosk = await mountKiosk()
     take()
     world.employees = [ANA]
@@ -334,7 +334,8 @@ describe('accounts', () => {
 
     expect(requests).toEqual([
       { method: 'GET', path: '/api/employees', token: 'token-new' },
-      { method: 'GET', path: '/api/account', token: 'token-new' }
+      { method: 'GET', path: '/api/account', token: 'token-new' },
+      { method: 'GET', path: '/api/times', token: 'token-new' }
     ])
     expect(kiosk.accounts.value[0]).toMatchObject({ token: 'token-new', hiddenEmployeeIds: ['hidden'] })
     expect(kiosk.activeState.value?.employees).toEqual([ANA])
