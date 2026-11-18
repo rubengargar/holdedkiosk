@@ -2,6 +2,9 @@ name = "holded-kiosk"
 main = "worker/src/index.ts"
 compatibility_date = "2026-11-01"
 workers_dev = true
+# Variables set outside this file (for example ALLOWED_ORIGINS on a split Pages + Worker
+# install) survive deploys that do not pass them.
+keep_vars = true
 
 [assets]
 directory = "./frontend/dist"
