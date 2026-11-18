@@ -1,7 +1,17 @@
-name = "holded-proxy-worker"
+name = "holded-kiosk"
 main = "worker/src/index.ts"
 compatibility_date = "2026-11-01"
 workers_dev = true
 
-[vars]
-ALLOWED_ORIGINS = "https://holdedkiosk.pages.dev,http://localhost:5173"
+[assets]
+directory = "./frontend/dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+
+[ratelimits.simple]
+limit = 120
+period = 60

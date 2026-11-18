@@ -1,4 +1,4 @@
-const WORKER_BASE = import.meta.env.VITE_WORKER_BASE?.trim().replace(/\/+$/, '')
+const API_BASE = import.meta.env.VITE_WORKER_BASE?.trim().replace(/\/+$/, '') ?? ''
 
 export interface Employee {
   id: string
@@ -35,11 +35,9 @@ interface ErrorBody {
 }
 
 async function request<T>(token: string, path: string, method: 'GET' | 'POST' = 'GET'): Promise<T> {
-  if (!WORKER_BASE) throw new ApiError(0, 'VITE_WORKER_BASE no está configurado en frontend/.env')
-
   let res: Response
   try {
-    res = await fetch(`${WORKER_BASE}${path}`, { method, headers: { 'X-Holded-API-Key': token } })
+    res = await fetch(`${API_BASE}${path}`, { method, headers: { 'X-Holded-API-Key': token } })
   } catch {
     throw new ApiError(0, 'No se pudo conectar con el servidor')
   }

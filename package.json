@@ -1,0 +1,19 @@
+{
+  "name": "holdedkiosk",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "npm ci --prefix frontend && npm ci --prefix worker",
+    "build": "npm run build --prefix frontend",
+    "deploy": "npm run build && wrangler deploy",
+    "dev": "npm run build && wrangler dev",
+    "test": "npm test --prefix worker && npm test --prefix frontend",
+    "typecheck": "npm run typecheck --prefix worker && npm run typecheck --prefix frontend"
+  },
+  "devDependencies": {
+    "wrangler": "^4.164.0"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}

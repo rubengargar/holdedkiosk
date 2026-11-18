@@ -5,3 +5,4 @@ worker/node_modules/
 .DS_Store
 frontend/.vite
 .wrangler/
+node_modules/

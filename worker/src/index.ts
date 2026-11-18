@@ -53,8 +53,12 @@ const routes: Route[] = [
 	...CLOCK_ACTIONS.map(clockRoute),
 ];
 
-function corsHeaders(request: Request, env: Env): Headers {
+const RATE_LIMIT_RETRY_AFTER = '60';
+
+function apiHeaders(request: Request, env: Env): Headers {
 	const headers = new Headers({
+		'Cache-Control': 'no-store',
+		'X-Content-Type-Options': 'nosniff',
 		Vary: 'Origin',
 		'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 		'Access-Control-Allow-Headers': 'x-holded-api-key, content-type',
@@ -62,7 +66,10 @@ function corsHeaders(request: Request, env: Env): Headers {
 		'Access-Control-Max-Age': '86400',
 	});
 	const origin = request.headers.get('Origin');
-	const allowed = (env.ALLOWED_ORIGINS ?? '').split(',').map((entry) => entry.trim());
+	const allowed = (env.ALLOWED_ORIGINS ?? '')
+		.split(',')
+		.map((entry) => entry.trim())
+		.filter(Boolean);
 	if (origin && allowed.includes(origin)) headers.set('Access-Control-Allow-Origin', origin);
 	return headers;
 }
@@ -95,9 +102,14 @@ async function dispatch(request: Request, env: Env): Promise<unknown> {
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		const headers = corsHeaders(request, env);
+		const headers = apiHeaders(request, env);
 		if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
 		try {
+			const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+			if (env.RATE_LIMITER && !(await env.RATE_LIMITER.limit({ key: ip })).success) {
+				headers.set('Retry-After', RATE_LIMIT_RETRY_AFTER);
+				return json({ error: 'Too many requests' }, 429, headers);
+			}
 			return json(await dispatch(request, env), 200, headers);
 		} catch (error) {
 			return errorResponse(error, headers);

@@ -40,7 +40,7 @@ Holded allows 100 requests per minute per API key. The kiosk keeps well under th
 ## Project structure
 
 *   `frontend/`: Vue 3 + Vite + Tailwind app.
-*   `worker/`: Cloudflare Worker that proxies the Holded API (v2).
+*   `worker/`: Cloudflare Worker that proxies the Holded API (v2) and serves the built frontend.
 
 ## Prerequisites
 
@@ -53,57 +53,40 @@ Holded allows 100 requests per minute per API key. The kiosk keeps well under th
 
 ## Setup and deployment
 
-### 1. Deploy the worker
+### One Worker for everything
+
+The Worker serves the built frontend as static assets and the API under `/api/*` from the same origin, so there is no Pages project, no CORS and no `VITE_WORKER_BASE`.
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/rubengargar/holdedkiosk)
+
+Or from a clone, with Node 22.12 or later:
 
 ```bash
-cd worker
 npm install
 npx wrangler login
 npm run deploy
 ```
 
-Wrangler prints the worker URL, for example `https://holded-proxy-worker.your-subdomain.workers.dev`. The frontend needs it.
+`npm install` at the repository root also installs `frontend/` and `worker/`. `npm run deploy` builds the frontend and runs `wrangler deploy` with the root `wrangler.toml`. That file is neutral: Worker name `holded-kiosk`, no `ALLOWED_ORIGINS`, a rate limit of 120 requests per 60 seconds per IP on `/api/*`.
 
-Set `ALLOWED_ORIGINS` in the `[vars]` block of the `wrangler.toml` at the repository root to the comma-separated list of origins that may call the worker. The worker answers CORS requests only for those origins. The default is `https://holdedkiosk.pages.dev,http://localhost:5173`. Add the origin where you host the frontend.
+`ALLOWED_ORIGINS` is optional. Unset or empty, the Worker grants no cross-origin access. Set it (comma-separated origins) only when the frontend is hosted on another origin.
 
-```toml
-[vars]
-ALLOWED_ORIGINS = "https://your-kiosk.pages.dev,http://localhost:5173"
-```
+Root scripts: `npm run build`, `dev` (build, then `wrangler dev`), `test`, `typecheck`.
 
-There is one Wrangler config, `wrangler.toml` at the repository root, with `main = "worker/src/index.ts"`. Cloudflare Workers Builds reads it from the root, and the `dev` and `deploy` scripts in `worker/` pass `--config ../wrangler.toml` so they use the same file.
+### Frontend on its own host (optional)
 
-To deploy from Cloudflare Workers Builds, connect the repository and use these settings from the repository root:
+Build `frontend/` with `VITE_WORKER_BASE` set to the Worker URL and host `frontend/dist` anywhere, for example Cloudflare Pages (root directory `frontend`, build command `npm run build`, output `dist`). Add that origin to the Worker's `ALLOWED_ORIGINS`. The build writes a `_headers` file whose Content-Security-Policy allows `connect-src` to that Worker origin only.
 
-```text
-Root directory: /
-Build command: None
-Deploy command: npx wrangler deploy
-Version command: npx wrangler versions upload
-Production branch: main
-```
+### Maintainer deploy
 
-
-### 2. Configure and build the frontend
+The production kiosk is a Cloudflare Pages project plus the Worker `holded-proxy-worker`. The repository config is neutral, so production supplies its own name and origins at deploy time:
 
 ```bash
-cd frontend
-npm install
-cp .env.example .env
+npx wrangler deploy --name holded-proxy-worker \
+  --var "ALLOWED_ORIGINS:https://holdedkiosk.pages.dev,http://localhost:5173"
 ```
 
-Set the worker URL in `frontend/.env`:
-
-```bash
-VITE_WORKER_BASE=https://holded-proxy-worker.your-subdomain.workers.dev
-```
-
-Build and deploy the `dist` folder to any static host. For Cloudflare Pages:
-
-```bash
-npm run build
-npx wrangler pages deploy dist
-```
+Run it after `npm run build`. If the Worker is built by Workers Builds, set its deploy command to that line. Pages keeps its settings: root directory `frontend`, build command `npm run build`, output `dist`, and `VITE_WORKER_BASE` set to the Worker URL.
 
 ## Local development against the mock
 
@@ -114,32 +97,19 @@ npx wrangler pages deploy dist
 node worker/test/mock-holded.mjs 8788
 
 # terminal 2: worker on port 8787, pointed at the mock
-cd worker
-npm install
-npx wrangler dev --config ../wrangler.toml --var HOLDED_API_BASE:http://127.0.0.1:8788
+npx wrangler dev --var HOLDED_API_BASE:http://127.0.0.1:8788
 
-# terminal 3: frontend on port 5173
-cd frontend
-cp .env.example .env   # VITE_WORKER_BASE=http://localhost:8787
-npm run dev
+# terminal 3: frontend on port 5173, /api proxied to the worker
+npm --prefix frontend run dev
 ```
 
-Add a company in the kiosk with a token such as `key-demo`. Use `key-other` for a second company.
+Add a company in the kiosk with a token such as `key-demo`. Use `key-other` for a second company. To try the production build instead, run `npm run dev` at the root and open the port `wrangler dev` prints.
 
-Worker checks:
+Checks, from the repository root:
 
 ```bash
-cd worker
-npm test
 npm run typecheck
-```
-
-Frontend checks:
-
-```bash
-cd frontend
 npm test
-npx vue-tsc --noEmit
 npm run build
 ```
 

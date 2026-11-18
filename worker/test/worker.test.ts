@@ -42,11 +42,11 @@ const entry = (employeeId: string, startMs: number, endMs: number | null, status
 	status,
 });
 
-const call = (path: string, init: RequestInit & { key?: string | null } = {}) => {
-	const { key = 'key-1', ...rest } = init;
+const call = (path: string, init: RequestInit & { key?: string | null; env?: Env } = {}) => {
+	const { key = 'key-1', env = ENV, ...rest } = init;
 	const headers = new Headers(rest.headers);
 	if (key) headers.set('X-Holded-API-Key', key);
-	return worker.fetch(new Request(`https://worker.test${path}`, { ...rest, headers }), ENV);
+	return worker.fetch(new Request(`https://worker.test${path}`, { ...rest, headers }), env);
 };
 
 beforeEach(() => stubUpstream(() => page([])));
@@ -342,5 +342,83 @@ describe('auth, routing and CORS', () => {
 		expect(response.headers.get('Access-Control-Allow-Headers')).toContain('x-holded-api-key');
 		expect(response.headers.get('Access-Control-Max-Age')).toBe('86400');
 		expect(upstreamCalls).toHaveLength(0);
+	});
+});
+
+describe('CORS without ALLOWED_ORIGINS', () => {
+	it.each([undefined, '', ' , '])('grants no cross-origin access when it is %j', async (allowed) => {
+		const env: Env = { HOLDED_API_BASE: 'https://holded.test', ALLOWED_ORIGINS: allowed };
+		const headers = { Origin: 'https://kiosk.test' };
+
+		const response = await call('/api/employees', { headers, env });
+		const preflight = await call('/api/employees', { method: 'OPTIONS', key: null, headers, env });
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+		expect(preflight.headers.get('Access-Control-Allow-Origin')).toBeNull();
+	});
+});
+
+describe('response headers', () => {
+	it.each([
+		['success', () => call('/api/employees')],
+		['auth error', () => call('/api/employees', { key: null })],
+		['not found', () => call('/api/nope')],
+		['preflight', () => call('/api/employees', { method: 'OPTIONS', key: null })],
+	])('are no-store and nosniff on a %s response', async (_name, request) => {
+		const response = await request();
+
+		expect(response.headers.get('Cache-Control')).toBe('no-store');
+		expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+	});
+});
+
+describe('rate limiting', () => {
+	const limiter = (allow: (key: string) => boolean) => {
+		const keys: string[] = [];
+		const binding: RateLimit = {
+			limit: async ({ key }) => {
+				keys.push(key);
+				return { success: allow(key) };
+			},
+		};
+		return { keys, env: { ...ENV, RATE_LIMITER: binding } satisfies Env };
+	};
+
+	it('lets requests through under the limit and keys them by client IP', async () => {
+		const { keys, env } = limiter(() => true);
+
+		const response = await call('/api/employees', { env, headers: { 'CF-Connecting-IP': '203.0.113.7' } });
+
+		expect(response.status).toBe(200);
+		expect(keys).toEqual(['203.0.113.7']);
+	});
+
+	it('answers 429 with Retry-After, CORS headers and no upstream call when over the limit', async () => {
+		const { env } = limiter((key) => key !== '203.0.113.7');
+		const headers = { 'CF-Connecting-IP': '203.0.113.7', Origin: 'https://kiosk.test' };
+
+		const response = await call('/api/employees', { env, headers });
+
+		expect(response.status).toBe(429);
+		expect(response.headers.get('Retry-After')).toBe('60');
+		expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://kiosk.test');
+		expect(response.headers.get('Cache-Control')).toBe('no-store');
+		expect(await response.json()).toHaveProperty('error');
+		expect(upstreamCalls).toHaveLength(0);
+
+		const other = await call('/api/employees', { env, headers: { 'CF-Connecting-IP': '203.0.113.8' } });
+		expect(other.status).toBe(200);
+	});
+
+	it('limits before checking the key', async () => {
+		const { env } = limiter(() => false);
+
+		expect((await call('/api/employees', { env, key: null })).status).toBe(429);
+	});
+
+	it('does not limit when the binding is absent', async () => {
+		expect(ENV.RATE_LIMITER).toBeUndefined();
+		expect((await call('/api/employees')).status).toBe(200);
 	});
 });
