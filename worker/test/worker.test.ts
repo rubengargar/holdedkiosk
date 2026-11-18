@@ -715,3 +715,162 @@ describe('sealed tokens', () => {
 function flip(part: string): string {
 	return (part[0] === 'A' ? 'B' : 'A') + part.slice(1);
 }
+
+describe('kiosk password', () => {
+	const PASSWORD = 'correct horse battery staple';
+	const basic = (user: string, password: string) => `Basic ${btoa(String.fromCharCode(...new TextEncoder().encode(`${user}:${password}`)))}`;
+	const GOOD = basic('kiosk', PASSWORD);
+
+	let assetRequests: string[];
+	const ASSETS = {
+		fetch: async (input: Request) => {
+			assetRequests.push(new URL(input.url).pathname);
+			return new Response('<html>kiosk</html>', { headers: { 'content-type': 'text/html' } });
+		},
+	} as unknown as Fetcher;
+	const on: Env = { ...ENV, KIOSK_PASSWORD: PASSWORD, ASSETS };
+
+	beforeEach(() => {
+		assetRequests = [];
+	});
+
+	const PATHS: [string, string, string | null][] = [
+		['the page', '/', null],
+		['an asset', '/assets/index-abc.js', null],
+		['an API route', '/api/employees', 'key-1'],
+		['the seal route', '/api/seal', 'key-1'],
+	];
+	const method = (path: string) => (path === '/api/seal' ? 'POST' : 'GET');
+	const get = (path: string, env: Env, authorization?: string, extra: Record<string, string> = {}) =>
+		call(path, {
+			env,
+			method: method(path),
+			key: path.startsWith('/api') ? 'key-1' : null,
+			headers: { ...(authorization ? { Authorization: authorization } : {}), ...extra },
+		});
+
+	describe('when KIOSK_PASSWORD is not set', () => {
+		it.each([undefined, ''])('serves assets and the API as before (password %j)', async (password) => {
+			const env: Env = { ...ENV, KIOSK_PASSWORD: password, ASSETS };
+
+			const page = await get('/', env);
+			const api = await get('/api/employees', env);
+
+			expect(page.status).toBe(200);
+			expect(await page.text()).toBe('<html>kiosk</html>');
+			expect(api.status).toBe(200);
+			expect(assetRequests).toEqual(['/']);
+		});
+
+		it('does not rate limit asset requests', async () => {
+			const limit = vi.fn(async () => ({ success: false }));
+
+			const page = await get('/', { ...ENV, ASSETS, RATE_LIMITER: { limit } });
+
+			expect(page.status).toBe(200);
+			expect(limit).not.toHaveBeenCalled();
+		});
+
+		it('accepts an empty password credential because auth is off', async () => {
+			const response = await get('/', { ...ENV, KIOSK_PASSWORD: '', ASSETS }, basic('kiosk', ''));
+			expect(response.status).toBe(200);
+		});
+	});
+
+	describe('when KIOSK_PASSWORD is set', () => {
+		it.each(PATHS)('answers 401 with the challenge and no body for %s, with zero upstream or asset calls', async (_name, path) => {
+			const response = await get(path, on);
+
+			expect(response.status).toBe(401);
+			expect(response.headers.get('WWW-Authenticate')).toBe('Basic realm="Holded Kiosk", charset="UTF-8"');
+			expect(await response.text()).toBe('');
+			expect(upstreamCalls).toHaveLength(0);
+			expect(assetRequests).toHaveLength(0);
+		});
+
+		it.each(PATHS)('lets correct credentials through for %s', async (_name, path) => {
+			stubUpstream((url) => (url.pathname.endsWith('/employees') ? page([employee('1'.repeat(24), 'Alfa')]) : page([])));
+
+			const response = await get(path, on, GOOD);
+
+			expect(response.status).toBe(path === '/api/seal' ? 503 : 200);
+			if (path.startsWith('/api')) expect(response.headers.get('Cache-Control')).toBe('no-store');
+			else expect(assetRequests).toEqual([path]);
+		});
+
+		it('does not reveal whether sealing is configured before authenticating', async () => {
+			const response = await get('/api/seal', { ...on, KIOSK_KEYS: undefined });
+			expect(response.status).toBe(401);
+			expect(await response.text()).toBe('');
+		});
+
+		it('keeps CORS headers on an API 401 so a cross-origin kiosk can show a clear message', async () => {
+			const response = await get('/api/employees', on, undefined, { Origin: 'https://kiosk.test' });
+			expect(response.status).toBe(401);
+			expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://kiosk.test');
+		});
+
+		it.each([
+			['wrong password', basic('kiosk', 'nope')],
+			['wrong user', basic('admin', PASSWORD)],
+			['empty password', basic('kiosk', '')],
+			['wrong scheme', `Bearer ${btoa(`kiosk:${PASSWORD}`)}`],
+			['malformed base64', 'Basic !!!not-base64!!!'],
+			['missing colon', `Basic ${btoa('kioskpassword')}`],
+			['non UTF-8 bytes', `Basic ${btoa(String.fromCharCode(0x6b, 0x3a, 0xff, 0xfe))}`],
+			['no credentials after the scheme', 'Basic'],
+			['a prefix of the right password', basic('kiosk', PASSWORD.slice(0, -1))],
+			['the password with extra characters', basic('kiosk', `${PASSWORD}x`)],
+		])('rejects %s', async (_name, authorization) => {
+			const response = await get('/', on, authorization);
+
+			expect(response.status).toBe(401);
+			expect(assetRequests).toHaveLength(0);
+		});
+
+		it('accepts the scheme in any case and a password containing colons', async () => {
+			const env: Env = { ...on, KIOSK_PASSWORD: 'a:b:c' };
+			const response = await get('/', env, basic('kiosk', 'a:b:c').replace('Basic', 'bAsIc'));
+			expect(response.status).toBe(200);
+		});
+
+		it('round-trips a non-ASCII password as UTF-8', async () => {
+			const env: Env = { ...on, KIOSK_PASSWORD: 'contraseña-ñandú-日本語-🔐' };
+
+			expect((await get('/', env, basic('kiosk', 'contraseña-ñandú-日本語-🔐'))).status).toBe(200);
+			expect((await get('/', env, basic('kiosk', 'contrasena'))).status).toBe(401);
+		});
+
+		it('uses KIOSK_USER when set and falls back to kiosk when it is empty', async () => {
+			expect((await get('/', { ...on, KIOSK_USER: 'tablet' }, basic('tablet', PASSWORD))).status).toBe(200);
+			expect((await get('/', { ...on, KIOSK_USER: 'tablet' }, GOOD)).status).toBe(401);
+			expect((await get('/', { ...on, KIOSK_USER: '' }, GOOD)).status).toBe(200);
+		});
+
+		it('answers an OPTIONS preflight with 204 without credentials', async () => {
+			const response = await call('/api/employees', { env: on, method: 'OPTIONS', key: null, headers: { Origin: 'https://kiosk.test' } });
+
+			expect(response.status).toBe(204);
+			expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://kiosk.test');
+		});
+
+		it('consults the rate limiter before the credentials, for pages too', async () => {
+			const limit = vi.fn(async () => ({ success: false }));
+			const env: Env = { ...on, RATE_LIMITER: { limit } };
+
+			for (const path of ['/', '/api/employees']) {
+				const response = await get(path, env, 'Basic !!!', { 'CF-Connecting-IP': '203.0.113.9' });
+				expect(response.status).toBe(429);
+				expect(response.headers.get('WWW-Authenticate')).toBeNull();
+			}
+			expect(limit).toHaveBeenCalledTimes(2);
+			expect(limit).toHaveBeenCalledWith({ key: '203.0.113.9' });
+		});
+
+		it('throttles wrong guesses per IP but still checks credentials when under the limit', async () => {
+			const env: Env = { ...on, RATE_LIMITER: { limit: async () => ({ success: true }) } };
+			expect((await get('/', env, basic('kiosk', 'bad'))).status).toBe(401);
+			expect((await get('/', env, GOOD)).status).toBe(200);
+		});
+	});
+});

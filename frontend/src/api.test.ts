@@ -108,3 +108,19 @@ describe('describeError on a 503', () => {
     expect(describeError(new ApiError(503, 'Sealing is not available on this Worker'))).toBe('Sealing is not available on this Worker')
   })
 })
+
+describe('a 401 from the Worker without a body', () => {
+  it('names the kiosk password and asks for a reload, unlike the Holded and sealed-token 401s', async () => {
+    stubResponse(new Response(null, { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="Holded Kiosk"' } }))
+    const { getEmployees, describeError, ApiError } = await loadApi(undefined)
+
+    const error = await getEmployees('k').catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ApiError)
+    const message = describeError(error)
+    expect(message).toContain('contraseña del kiosko')
+    expect(message).toContain('Recarga')
+    expect(message).not.toContain('Holded request failed')
+    expect(message).not.toContain('Vuelve a introducir')
+  })
+})

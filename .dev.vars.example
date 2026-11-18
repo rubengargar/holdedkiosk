@@ -1,0 +1,5 @@
+# Optional. Setting KIOSK_PASSWORD turns on HTTP Basic authentication for the whole kiosk.
+# Leave it empty (or unset) to keep the kiosk open.
+KIOSK_PASSWORD=
+# Optional. Defaults to "kiosk".
+KIOSK_USER=

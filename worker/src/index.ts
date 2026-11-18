@@ -1,6 +1,7 @@
 import type { Env } from './env';
 import { HttpError } from './errors';
 import { HoldedError, clock, type ClockAction, getAccountInfo, listActiveEmployees, listEntriesSince } from './holded';
+import { CHALLENGE, kioskAuthEnabled, kioskAuthorized } from './kiosk-auth';
 import { isSealed, seal, unseal } from './seal';
 
 interface Context {
@@ -116,17 +117,35 @@ async function dispatch(request: Request, env: Env): Promise<unknown> {
 	throw new HttpError(404, 'Not found');
 }
 
+const isApi = (url: URL): boolean => url.pathname === '/api' || url.pathname.startsWith('/api/');
+
+function unauthorized(headers: Headers): Response {
+	headers.set('WWW-Authenticate', CHALLENGE);
+	return new Response(null, { status: 401, headers });
+}
+
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
+		const url = new URL(request.url);
+		const api = isApi(url);
 		const headers = apiHeaders(request, env);
+
 		if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
+
 		try {
-			const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
-			if (!(await withinRateLimit(env, ip))) {
-				headers.set('Retry-After', RATE_LIMIT_RETRY_AFTER);
-				return json({ error: 'Too many requests' }, 429, headers);
+			if (api || kioskAuthEnabled(env)) {
+				const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+				if (!(await withinRateLimit(env, ip))) {
+					headers.set('Retry-After', RATE_LIMIT_RETRY_AFTER);
+					return json({ error: 'Too many requests' }, 429, headers);
+				}
 			}
-			return json(await dispatch(request, env), 200, headers);
+
+			if (!(await kioskAuthorized(request, env))) return unauthorized(api ? headers : new Headers({ 'Cache-Control': 'no-store' }));
+
+			if (api) return json(await dispatch(request, env), 200, headers);
+			if (!env.ASSETS) return json({ error: 'Not found' }, 404, headers);
+			return env.ASSETS.fetch(request);
 		} catch (error) {
 			return errorResponse(error, headers);
 		}

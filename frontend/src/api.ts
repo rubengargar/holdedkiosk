@@ -19,6 +19,9 @@ export interface AccountInfo {
 
 export type ClockAction = 'clock-in' | 'clock-out' | 'pause' | 'unpause'
 
+export const KIOSK_PASSWORD_MESSAGE =
+  'El kiosko está protegido con contraseña y el navegador no la ha enviado o ha dejado de ser válida. Recarga la página e introduce la contraseña del kiosko.'
+
 export class ApiError extends Error {
   readonly status: number
 
@@ -48,7 +51,9 @@ async function request<T>(token: string, path: string, method: 'GET' | 'POST' = 
       ? body.detail
         ? `${body.error}: ${body.detail}`
         : body.error
-      : `Error ${res.status}`
+      : res.status === 401
+        ? KIOSK_PASSWORD_MESSAGE
+        : `Error ${res.status}`
     throw new ApiError(res.status, message)
   }
 

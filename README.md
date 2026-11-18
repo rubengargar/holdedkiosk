@@ -47,7 +47,8 @@ El kiosko es una página web, así que sirve cualquier tablet barata con navegad
 3. Activa `Keep Screen On` para que la pantalla no se apague.
 4. En `Web Auto Reload`, activa `Auto Reload on Network Reconnect` para que se recupere sola si cae el wifi.
 5. En esa misma sección, deja desactivados `Delete Webstorage on Auto Reload` y `Delete Cookies on Auto Reload`. El kiosko guarda sus empresas en el almacenamiento del navegador, y borrarlo obliga a configurarlo de nuevo.
-6. Activa `Kiosk Mode` con un PIN para que nadie salga del navegador ni abra otras aplicaciones.
+6. Si activaste la [contraseña del kiosko](#proteger-el-kiosko-con-contraseña), en `Web Content Settings` rellena `Username (optional)` con el usuario (`kiosk` por defecto) y `Password (optional)` con la contraseña. Fully Kiosk las usa como "user name" y "password for Basic HTTP Authentication" solo en los hosts de `Start URL`, cuando el servidor pide autenticación.
+7. Activa `Kiosk Mode` con un PIN para que nadie salga del navegador ni abra otras aplicaciones.
 
 Fully Kiosk se puede probar gratis con todas sus funciones. El modo kiosko requiere la licencia PLUS: 8,90 € más impuestos por dispositivo, pago único. Su fabricante desaconseja las tablets Amazon Fire para uso permanente.
 
@@ -76,6 +77,28 @@ Holded permite 100 peticiones por minuto por clave. El kiosko se queda muy por d
 *   Nombre y logo se piden al añadir la empresa, al cambiar su token, al sincronizar por primera vez una empresa que no los tiene y con "Actualizar datos de Holded". Nunca en las consultas periódicas.
 *   Ante un 429, el kiosko muestra un aviso y mantiene los datos que ya tenía en pantalla.
 
+## Proteger el kiosko con contraseña
+
+Opcional y desactivada por defecto. Con ella, el Worker pide autenticación HTTP Basic en todas las peticiones, tanto la página y sus archivos como `/api/*`. Sin credenciales válidas responde 401. Si no la defines, el kiosko funciona exactamente como antes.
+
+Para activarla, define el secreto `KIOSK_PASSWORD`. Un valor vacío o ausente la deja desactivada.
+
+```bash
+npx wrangler secret put KIOSK_PASSWORD
+```
+
+También puedes crearlo en el panel de Cloudflare, en Worker, Settings, Variables and Secrets. Opcionalmente, define la variable `KIOSK_USER` para cambiar el usuario, que por defecto es `kiosk`. En local, ponlos en un archivo `.dev.vars` (copia `.dev.vars.example`; está en `.gitignore`). `wrangler dev` lee `.dev.vars` al arrancar, así que reinícialo tras cambiarlo.
+
+Después, introduce el usuario y la contraseña en Fully Kiosk (ver [Montar la tablet en la pared](#montar-la-tablet-en-la-pared)). En un navegador normal, el navegador pide las credenciales al abrir el kiosko y las reenvía en las llamadas a `/api/*`.
+
+Qué protege. Impide que use el Worker quien solo conoce la URL o ha copiado un token sellado: sin la contraseña no se sirve la página ni se llama a Holded. El Worker responde 429 a quien supere el límite de peticiones por IP antes de mirar las credenciales, y compara usuario y contraseña en tiempo constante.
+
+Qué no protege. Las credenciales quedan guardadas en el navegador kiosko de la tablet, así que quien controle del todo la tablet puede extraerlas. No es un PIN por empleado. Basic permite adivinar la contraseña por internet y solo lo frena el límite por IP, por eso usa una contraseña larga y aleatoria.
+
+Solo para la instalación de un único Worker. Con el frontend en Cloudflare Pages y el Worker aparte (`ALLOWED_ORIGINS`), la contraseña del Worker no protege la página y las llamadas entre orígenes no llevan las credenciales: no lo combines. Si lo haces, el kiosko mostrará el aviso de contraseña del kiosko.
+
+Como el Worker se ejecuta para cada petición, los archivos del frontend también cuentan como peticiones del Worker y entran en las 100.000 diarias del plan gratuito.
+
 ## Seguridad y privacidad
 
 **Qué hace el Worker.** Sella las claves de Holded y devuelve únicamente el `id` y el nombre de cada empleado, y el nombre y la URL del logo de la empresa. No devuelve IBAN, número de la Seguridad Social, salario ni dirección, aunque Holded los envíe a la API. Lo único que guarda son las claves de sellado, en KV. No guarda claves de Holded ni escribe logs. Cloudflare, como plataforma, puede registrar peticiones según la configuración de tu cuenta.
@@ -84,7 +107,7 @@ Holded permite 100 peticiones por minuto por clave. El kiosko se queda muy por d
 
 Qué arregla esto: copiar el token de la tablet ya no da acceso directo a Holded. Con `team:employees.read`, antes se podían leer IBAN, número de la Seguridad Social y salario de cada empleado. Ahora, desde la tablet, solo se alcanza lo que el Worker expone: `id` y nombre de los empleados, nombre y logo de la empresa y las acciones de fichaje. El sellado no deshace lo ya ocurrido: una clave que estuvo en claro en la tablet sigue comprometida hasta que se revoca.
 
-**Límite de peticiones.** El Worker aplica unas 120 peticiones por minuto por IP en `/api/*` y responde 429 al superarlo. Es un límite aproximado, el de la función de rate limiting de Cloudflare.
+**Límite de peticiones.** El Worker aplica unas 120 peticiones por minuto por IP en `/api/*`, y en toda la página si activas la contraseña del kiosko, y responde 429 al superarlo. Es un límite aproximado, el de la función de rate limiting de Cloudflare.
 
 **Cabeceras.** El frontend se sirve con una Content-Security-Policy restrictiva (`script-src 'self'`, `frame-ancestors 'none'`, imágenes de `self`, `data:` y cualquier origen `https:`, porque el logo puede venir de otro host y las imágenes no ejecutan código), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` y una Permissions-Policy que desactiva cámara, micrófono y geolocalización. Esa política, la del archivo `_headers`, cubre el frontend. Las respuestas de `/api` llevan `X-Content-Type-Options: nosniff` y `Cache-Control: no-store`, que añade el Worker.
 
@@ -95,7 +118,7 @@ Qué arregla esto: copiar el token de la tablet ya no da acceso directo a Holded
 *   Quien opera el Worker y su KV puede leer las claves: puede descifrar cualquier token con la clave de sellado y ve las claves en memoria al procesar cada petición.
 *   KV no ofrece "escribir si no existe" y es eventualmente consistente. Por eso cada clave de sellado se guarda con su propio `kid` y nunca se sobrescribe: si dos regiones sellan por primera vez a la vez, cada una usa su clave y todas siguen siendo legibles. Como mucho, en el primer minuto tras el primerísimo sellado, una petición puede recibir un "inténtalo de nuevo en un minuto" hasta que la clave se propaga.
 *   No hay PIN por empleado. Cualquiera que tenga delante el kiosko puede fichar por cualquier otra persona.
-*   La URL del kiosko no tiene control de acceso. Quien la conozca puede abrirla y usar el Worker como pasarela con su propia clave de Holded, dentro del límite de peticiones.
+*   Sin la [contraseña del kiosko](#proteger-el-kiosko-con-contraseña), la URL del kiosko no tiene control de acceso: quien la conozca puede abrirla y usar el Worker como pasarela con su propia clave de Holded, dentro del límite de peticiones. Con ella, la tablet guarda las credenciales y quien controle la tablet puede extraerlas.
 *   Usa una clave dedicada, solo con los permisos de la tabla.
 
 ## Actualizar una instalación existente
@@ -143,6 +166,8 @@ Comprobaciones, desde la raíz: `npm run typecheck`, `npm test` y `npm run build
 | `HOLDED_API_BASE` | Variable del Worker | `https://api.holded.com` | URL base de la API de Holded. Solo se cambia para apuntar al mock |
 | `VITE_WORKER_BASE` | Variable de compilación del frontend | Vacío (mismo origen) | URL del Worker cuando el frontend se aloja aparte. Fija además el `connect-src` de la CSP a ese origen |
 | `KIOSK_KEYS` | Binding KV en `wrangler.toml` | Se crea al desplegar | Namespace donde el Worker guarda la clave de sellado. Se declara sin `id`: el botón de despliegue y `wrangler deploy` lo crean y los despliegues siguientes lo reutilizan. Sin él, `/api/seal` responde 503: las empresas con claves sin sellar siguen funcionando, pero no se pueden añadir empresas ni cambiar tokens. En `wrangler dev` y en los tests es un KV local |
+| `KIOSK_PASSWORD` | Secreto del Worker (`npx wrangler secret put KIOSK_PASSWORD`) o `.dev.vars` | Sin definir | Activa la autenticación HTTP Basic en todo el kiosko. Vacío o ausente, está desactivada. Solo para la instalación de un único Worker |
+| `KIOSK_USER` | Variable del Worker | `kiosk` | Usuario que acepta la autenticación cuando `KIOSK_PASSWORD` está definida |
 | `[[ratelimits]]` | `wrangler.toml` | `limit = 120`, `period = 60` | Peticiones permitidas por IP en el periodo, en segundos, con el binding `RATE_LIMITER` |
 
 El `wrangler.toml` de la raíz es neutro: Worker `holded-kiosk`, sin `ALLOWED_ORIGINS`. Scripts de la raíz: `build`, `deploy`, `dev`, `test`, `typecheck`.
