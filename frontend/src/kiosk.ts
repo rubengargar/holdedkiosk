@@ -24,8 +24,10 @@ import {
   type TimeEntry
 } from './api'
 import {
+  blockFromError,
   blockFromRateLimit,
   DEFAULT_REFRESH_MINUTES,
+  intervalMs,
   isBlocked,
   isEmployeesDue,
   isInUse,
@@ -48,6 +50,8 @@ export interface AccountState {
   lastActionAt: number | null
   quotaUntil: number | null
   backoffUntil: number | null
+  // When a Holded 429 without a window header was last seen, to tell a repeat from a second failure of the same attempt.
+  windowlessAt: number | null
 }
 
 // 'tick' is the background timer, 'view' a page load, a switch or a first touch, 'manual' the Actualizar button.
@@ -68,7 +72,9 @@ function emptyState(cached?: CachedState): AccountState {
     pausedIds: new Set(),
     clocking: {},
     lastActionAt: null,
-    ...NO_BLOCK
+    quotaUntil: cached?.quotaUntil ?? null,
+    backoffUntil: cached?.backoffUntil ?? null,
+    windowlessAt: null
   }
 }
 
@@ -103,12 +109,16 @@ export function useKiosk() {
     const snapshot: Record<string, CachedState> = {}
     for (const account of accounts.value) {
       const state = states[account.id]
-      if (!state || (state.employeesFetchedAt == null && state.timesFetchedAt == null)) continue
+      if (!state) continue
+      const hasData = state.employeesFetchedAt != null || state.timesFetchedAt != null
+      if (!hasData && state.quotaUntil == null && state.backoffUntil == null) continue
       snapshot[account.id] = {
         employees: state.employees,
         entries: state.entries,
         employeesFetchedAt: state.employeesFetchedAt,
-        timesFetchedAt: state.timesFetchedAt
+        timesFetchedAt: state.timesFetchedAt,
+        quotaUntil: state.quotaUntil,
+        backoffUntil: state.backoffUntil
       }
     }
     saveCache(localStorage, snapshot)
@@ -132,27 +142,49 @@ export function useKiosk() {
     return accounts.value.find(a => a.id === account.id)?.token !== account.token
   }
 
-  function noteRateLimit(state: AccountState, e: unknown) {
-    if (!(e instanceof ApiError) || e.status !== 429) return
-    Object.assign(state, blockFromRateLimit(e.rateLimit, Date.now()))
+  // A failed read waits one refresh interval before the next try, so a broken company costs no more than a healthy one.
+  function noteFailure(account: Account, state: AccountState, e: unknown, attemptAt: number) {
+    const at = Date.now()
+    const interval = intervalMs(account.refreshMinutes)
+    let block = blockFromError(at, interval)
+    if (e instanceof ApiError && e.status === 429) {
+      const windowless = e.message.startsWith('Holded request failed') && e.rateLimit?.window == null
+      const repeated = windowless && state.windowlessAt != null && state.windowlessAt < attemptAt
+      if (windowless) state.windowlessAt = at
+      block = blockFromRateLimit(e.rateLimit, at, interval, repeated)
+    }
+    // Two reads of one attempt can fail differently. The longer wait wins.
+    const pending = state.backoffUntil != null && state.backoffUntil > at ? state.backoffUntil : 0
+    Object.assign(state, {
+      ...block,
+      backoffUntil: block.backoffUntil == null ? null : Math.max(block.backoffUntil, pending)
+    })
   }
 
-  function fail(account: Account, state: AccountState, e: unknown) {
-    if (tokenReplaced(account)) return
-    noteRateLimit(state, e)
+  function fail(account: Account, state: AccountState, e: unknown, attemptAt: number): false {
+    if (tokenReplaced(account)) return false
+    noteFailure(account, state, e, attemptAt)
     state.error = isQuotaExhausted(state.quotaUntil, Date.now()) ? '' : describeError(e)
+    return false
   }
 
-  async function loadTimes(account: Account, state: AccountState, at: number) {
+  function clearBlock(state: AccountState) {
+    Object.assign(state, NO_BLOCK)
+    state.windowlessAt = null
+  }
+
+  // Resolves to whether the read succeeded.
+  async function loadTimes(account: Account, state: AccountState, at: number): Promise<boolean> {
     try {
       const entries = await getTimes(account.token, dayStart(at))
-      if (tokenReplaced(account) || isStaleTimes(at, state.lastActionAt)) return
+      if (tokenReplaced(account)) return false
+      state.timesFetchedAt = Date.now()
+      if (isStaleTimes(at, state.lastActionAt)) return true
       state.entries = entries
       state.pausedIds = prunePaused(state.pausedIds, entries)
-      state.timesFetchedAt = Date.now()
-      Object.assign(state, NO_BLOCK)
+      return true
     } catch (e) {
-      fail(account, state, e)
+      return fail(account, state, e, at)
     }
   }
 
@@ -163,6 +195,7 @@ export function useKiosk() {
     if (!state || state.loading) return
 
     const at = Date.now()
+    if (state.lastActionAt != null && state.lastActionAt > at) state.lastActionAt = null
     if (mode !== 'manual' && isBlocked(state, at)) return
     const needEmployees = mode === 'manual' || isEmployeesDue(at, state.employeesFetchedAt)
     const needTimes = mode === 'manual' || isTimesDue(at, state.timesFetchedAt, account.refreshMinutes)
@@ -176,15 +209,20 @@ export function useKiosk() {
     const loadEmployees = async () => {
       try {
         const employees = sortByName(await getEmployees(account.token))
-        if (tokenReplaced(account)) return
+        if (tokenReplaced(account)) return false
         state.employees = employees
         state.employeesFetchedAt = Date.now()
+        return true
       } catch (e) {
-        fail(account, state, e)
+        return fail(account, state, e, at)
       }
     }
 
-    await Promise.all([needEmployees && loadEmployees(), needTimes && loadTimes(account, state, at)])
+    const results = await Promise.all([
+      needEmployees ? loadEmployees() : true,
+      needTimes ? loadTimes(account, state, at) : true
+    ])
+    if (results.every(Boolean)) clearBlock(state)
     state.loading = false
     persistStates()
   }
@@ -249,9 +287,12 @@ export function useKiosk() {
     if (state) {
       state.employees = sortByName(employees)
       state.employeesFetchedAt = Date.now()
+      state.entries = []
+      state.timesFetchedAt = null
       state.error = ''
+      clearBlock(state)
       const account = accounts.value.find(a => a.id === id)
-      if (account) await loadTimes(account, state, Date.now())
+      if (account && (await loadTimes(account, state, Date.now()))) clearBlock(state)
       persistStates()
     }
   }
@@ -330,11 +371,11 @@ export function useKiosk() {
       const doneAt = Date.now()
       state.entries = applyClock(state.entries, employee.id, action, doneAt)
       state.lastActionAt = doneAt
+      state.quotaUntil = null
       setPaused(action === 'pause')
-      persistStates()
     } catch (e) {
       failed = true
-      noteRateLimit(state, e)
+      if (e instanceof ApiError && e.status === 429) noteFailure(account, state, e, Date.now())
       state.actionError = `Error al fichar a ${employee.name}: ${describeError(e)}`
       if (action === 'unpause') setPaused(false)
     } finally {
@@ -342,6 +383,7 @@ export function useKiosk() {
     }
 
     if (failed && !isBlocked(state, Date.now())) await loadTimes(account, state, Date.now())
+    persistStates()
   }
 
   function dismissActionError() {

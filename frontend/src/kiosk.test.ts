@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h } from 'vue'
 import type { AccountInfo, Employee, TimeEntry } from './api'
 import { trackedMs } from './board'
+import { estimateMonthlyCalls } from './refresh'
 
 type Kiosk = ReturnType<typeof import('./kiosk').useKiosk>
 
@@ -34,7 +35,8 @@ interface World {
   info: AccountInfo
   infoStatus: number
   unavailable: boolean
-  limit: { window: 'minute' | 'month'; retryAfter?: number; reset?: number } | null
+  limit: { window: 'minute' | 'month' | null; retryAfter?: number; reset?: number } | null
+  timesFail: number | 'network' | null
 }
 
 let world: World
@@ -66,10 +68,14 @@ async function fakeFetch(input: string, init: RequestInit = {}): Promise<Respons
   if (world.limit && method === 'GET' && (url.pathname === '/api/times' || url.pathname === '/api/employees')) {
     const { window, retryAfter, reset } = world.limit
     return reply({ error: 'Holded request failed', detail: 'Too many requests' }, 429, {
-      'X-RateLimit-Window': window,
+      ...(window === null ? {} : { 'X-RateLimit-Window': window }),
       ...(retryAfter === undefined ? {} : { 'Retry-After': String(retryAfter) }),
       ...(reset === undefined ? {} : { 'X-RateLimit-Reset': String(reset) })
     })
+  }
+  if (world.timesFail && url.pathname === '/api/times') {
+    if (world.timesFail === 'network') throw new TypeError('network down')
+    return reply({ error: 'Holded request failed', detail: 'Boom' }, world.timesFail)
   }
   if (method === 'POST') {
     const action = url.pathname.split('/').pop() ?? ''
@@ -156,7 +162,8 @@ beforeEach(async () => {
     info: { name: 'Acme Holded', logoUrl: 'https://app.holded.com/box/account/abc' },
     infoStatus: 200,
     unavailable: false,
-    limit: null
+    limit: null,
+    timesFail: null
   }
   requests = []
   mounted = []
@@ -488,7 +495,7 @@ describe('persisted state', () => {
 describe('quota', () => {
   const RESET = NOON + 3 * HOUR
 
-  it('stops background refresh after a month-window 429 until the reset, shows the message, and still sends clock actions', async () => {
+  it('stops background refresh after a month-window 429 until the reset and shows the message', async () => {
     const kiosk = await mountKiosk()
     touch()
     take()
@@ -502,9 +509,6 @@ describe('quota', () => {
 
     await advanceInUse(90 * MIN)
     expect(take()).toEqual([])
-
-    await kiosk.clock(ANA, 'clock-in')
-    expect(take()).toEqual(['POST /api/employees/e1/clock-in'])
 
     world.limit = null
     await advanceInUse(70 * MIN)
@@ -567,6 +571,166 @@ describe('quota', () => {
     await vi.advanceTimersByTimeAsync(MIN)
     expect(take()).toEqual([TIMES])
     expect(kiosk.activeState.value?.error).toBe('')
+  })
+})
+
+describe('failed reads', () => {
+  it.each([500, 403, 401, 'network'] as const)(
+    'makes at most 4 times calls in 2 hours of use at the default 30 minutes when times fails with %s',
+    async failure => {
+      world.timesFail = failure
+      await mountKiosk()
+      touch()
+
+      await advanceInUse(2 * HOUR - MIN, 10 * MIN)
+
+      expect(count(take(), TIMES)).toBeLessThanOrEqual(4)
+    }
+  )
+
+  it('backs off for the company interval, so 15 minutes retries more often than 60', async () => {
+    world.timesFail = 500
+    setRefresh(60)
+    await mountKiosk()
+    touch()
+
+    await advanceInUse(2 * HOUR - MIN, 10 * MIN)
+
+    expect(count(take(), TIMES)).toBeLessThanOrEqual(2)
+  })
+
+  it('lets a manual refresh through a backoff and clears the backoff on success', async () => {
+    world.timesFail = 500
+    const kiosk = await mountKiosk()
+    expect(kiosk.activeState.value?.backoffUntil).toBe(NOON + 30 * MIN)
+    take()
+    world.timesFail = null
+
+    kiosk.refresh()
+    await settle()
+
+    expect(take().sort()).toEqual([EMPLOYEES, TIMES])
+    expect(kiosk.activeState.value?.backoffUntil).toBeNull()
+  })
+
+  it('makes no call on a reload during a backoff, and one call once it is over', async () => {
+    world.timesFail = 500
+    await mountKiosk()
+    take()
+    mounted.forEach(wrapper => wrapper.unmount())
+    await vi.advanceTimersByTimeAsync(MIN)
+
+    await mountKiosk()
+    touch()
+    await settle()
+    expect(take()).toEqual([])
+
+    await advanceInUse(30 * MIN, MIN)
+    expect(count(take(), TIMES)).toBe(1)
+  })
+
+  it('makes no call on a reload during a month quota block and still shows the message', async () => {
+    const kiosk = await mountKiosk()
+    touch()
+    world.limit = { window: 'month', reset: (NOON + 3 * HOUR) / 1000 }
+    await vi.advanceTimersByTimeAsync(30 * MIN)
+    mounted.forEach(wrapper => wrapper.unmount())
+    await vi.advanceTimersByTimeAsync(MIN)
+    take()
+
+    const reloaded = await mountKiosk()
+    touch()
+    await settle()
+
+    expect(take()).toEqual([])
+    expect(reloaded.quotaMessage.value).toContain('cuota mensual')
+    expect(kiosk.activeState.value?.quotaUntil).toBe(NOON + 3 * HOUR)
+  })
+
+  it('makes at most 5 times calls in 2 hours of a Holded 429 without a window header', async () => {
+    world.limit = { window: null }
+    await mountKiosk()
+    touch()
+
+    await advanceInUse(2 * HOUR - MIN, 10 * MIN)
+
+    expect(count(take(), TIMES)).toBeLessThanOrEqual(5)
+  })
+
+  it('honours Retry-After for the first window-less 429 and then waits a whole interval', async () => {
+    world.limit = { window: null, retryAfter: 150 }
+    const kiosk = await mountKiosk()
+    touch()
+    expect(kiosk.activeState.value?.backoffUntil).toBe(NOON + 150_000)
+
+    await vi.advanceTimersByTimeAsync(3 * MIN)
+
+    expect(kiosk.activeState.value?.backoffUntil).toBe(NOON + 3 * MIN + 30 * MIN)
+  })
+
+  it('waits a whole interval after a times response is dropped as stale', async () => {
+    const kiosk = await mountKiosk()
+    touch()
+    let release: (entries: TimeEntry[]) => void = () => {}
+    world.times = () => new Promise<TimeEntry[]>(resolve => (release = resolve))
+    await vi.advanceTimersByTimeAsync(30 * MIN)
+    await vi.advanceTimersByTimeAsync(1000)
+    await kiosk.clock(ANA, 'clock-in')
+    release([])
+    await settle()
+    take()
+
+    await advanceInUse(10 * MIN, MIN)
+
+    expect(count(take(), TIMES)).toBe(0)
+  })
+
+  it('does not fetch every minute after the clock jumps back an hour following a clock action', async () => {
+    const kiosk = await mountKiosk()
+    touch()
+    await kiosk.clock(ANA, 'clock-in')
+    vi.setSystemTime(NOON - HOUR)
+    take()
+
+    await advanceInUse(10 * MIN, MIN)
+
+    expect(count(take(), TIMES)).toBeLessThanOrEqual(1)
+  })
+
+  it('clears the quota block and its message when a clock action succeeds', async () => {
+    const kiosk = await mountKiosk()
+    touch()
+    world.limit = { window: 'month', reset: (NOON + 3 * HOUR) / 1000 }
+    await vi.advanceTimersByTimeAsync(30 * MIN)
+    expect(kiosk.quotaMessage.value).not.toBe('')
+    take()
+
+    await kiosk.clock(ANA, 'clock-in')
+
+    expect(take()).toEqual(['POST /api/employees/e1/clock-in'])
+    expect(kiosk.quotaMessage.value).toBe('')
+    expect(kiosk.activeState.value?.quotaUntil).toBeNull()
+  })
+
+  it.each([
+    [15, 48],
+    [30, 24],
+    [60, 12]
+  ] as const)('spends what the estimate predicts in a day touched hourly 08:00 to 18:00 at %s minutes', async (minutes, perDay) => {
+    expect(estimateMonthlyCalls(minutes).times / 22).toBe(perDay)
+    setRefresh(minutes)
+    vi.setSystemTime(new Date(2026, 5, 10, 8, 0, 0))
+    await mountKiosk()
+    touch()
+
+    for (let hour = 9; hour <= 22; hour++) {
+      await vi.advanceTimersByTimeAsync(HOUR)
+      if (hour <= 18) touch()
+    }
+    const calls = take()
+
+    expect(Math.abs(count(calls, TIMES) - perDay)).toBeLessThanOrEqual(1)
+    expect(count(calls, EMPLOYEES)).toBe(1)
   })
 })
 
@@ -682,6 +846,19 @@ describe('accounts', () => {
     ])
     expect(kiosk.accounts.value[0]).toMatchObject({ token: 'sealed.token-new', hiddenEmployeeIds: ['hidden'] })
     expect(kiosk.activeState.value?.employees).toEqual([ANA])
+  })
+
+  it('shows no entry of the previous account when the times of the new token fail to load', async () => {
+    world.times = () => [running('e1')]
+    const kiosk = await mountKiosk()
+    take()
+    world.timesFail = 500
+
+    await kiosk.changeToken('a', 'token-new')
+
+    expect(kiosk.activeState.value?.entries).toEqual([])
+    expect(kiosk.activeState.value?.timesFetchedAt).toBeNull()
+    expect(JSON.parse(localStorage.getItem('kiosk_state') ?? '{}').a.entries).toEqual([])
   })
 
   it('keeps the old token when the new one is rejected', async () => {

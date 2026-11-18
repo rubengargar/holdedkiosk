@@ -85,3 +85,12 @@ export function applyClock(
 export function isStaleTimes(requestedAt: number, lastActionAt: number | null): boolean {
   return lastActionAt != null && requestedAt <= lastActionAt
 }
+
+export function formatAge(fetchedAt: number | null, now: number): string {
+  if (fetchedAt == null) return 'Sin datos todavía'
+  const minutes = Math.floor(Math.max(0, now - fetchedAt) / 60_000)
+  if (minutes < 1) return 'Actualizado ahora'
+  if (minutes < 60) return `Actualizado hace ${minutes} min`
+  if (minutes < 24 * 60) return `Actualizado hace ${Math.floor(minutes / 60)} h`
+  return `Actualizado hace ${Math.floor(minutes / (24 * 60))} d`
+}

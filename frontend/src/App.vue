@@ -4,7 +4,7 @@ import AccountAvatar from './AccountAvatar.vue'
 import AddAccountForm from './AddAccountForm.vue'
 import SettingsPanel from './SettingsPanel.vue'
 import { avatarColors, getInitials } from './avatar'
-import { formatHHMM, trackedMs } from './board'
+import { formatAge, formatHHMM, trackedMs } from './board'
 import { useKiosk } from './kiosk'
 
 const {
@@ -63,6 +63,8 @@ const rows = computed(() => {
       }
     })
 })
+
+const dataAge = computed(() => formatAge(activeState.value?.timesFetchedAt ?? null, now.value))
 
 const clockedInCount = computed(() => rows.value.filter(row => row.isClockedIn).length)
 
@@ -189,6 +191,8 @@ watch(activeId, () => {
             {{ activeState.loading ? 'Sync...' : 'Actualizar' }}
           </button>
         </div>
+
+        <p class="mb-2 -mt-2 text-xs text-gray-500 text-right">{{ dataAge }}</p>
 
         <p v-if="activeState.loading && employees.length === 0" class="text-center py-2">Cargando empleados...</p>
         <p v-if="quotaMessage" class="mb-2 p-2 rounded-md bg-amber-50 text-amber-900 text-sm" role="alert">{{ quotaMessage }}</p>

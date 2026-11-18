@@ -21,7 +21,9 @@ describe('cached state', () => {
       employees: [{ id: 'e1', name: 'Ana' }],
       entries: [{ employeeId: 'e1', start: NOON - HOUR, end: null, paused: false }],
       employeesFetchedAt: NOON,
-      timesFetchedAt: NOON
+      timesFetchedAt: NOON,
+      quotaUntil: NOON + HOUR,
+      backoffUntil: NOON + 30 * 60_000
     }
 
     saveCache(s, { a: state })
@@ -47,6 +49,30 @@ describe('cached state', () => {
     )
 
     expect(loadCache(s, NOON).a.entries.map(e => e.employeeId)).toEqual(['e2', 'e3'])
+  })
+
+  it('restores a block that is still ahead and drops one in the past or far in the future', () => {
+    const base = { employees: [], entries: [], employeesFetchedAt: NOON, timesFetchedAt: NOON }
+    const load = (quotaUntil: number | null, backoffUntil: number | null) =>
+      loadCache(store(JSON.stringify({ a: { ...base, quotaUntil, backoffUntil } })), NOON).a
+
+    expect(load(NOON + HOUR, NOON + HOUR)).toMatchObject({ quotaUntil: NOON + HOUR, backoffUntil: NOON + HOUR })
+    expect(load(NOON - 1, NOON)).toMatchObject({ quotaUntil: null, backoffUntil: null })
+    expect(load(NOON + 400 * 24 * HOUR, NOON + 400 * 24 * HOUR)).toMatchObject({ quotaUntil: null, backoffUntil: null })
+  })
+
+  it('loads state saved without a block, and rejects a block that is not a number', () => {
+    const base = { employees: [], entries: [], employeesFetchedAt: NOON, timesFetchedAt: NOON }
+    const s = store(JSON.stringify({ a: base, b: { ...base, quotaUntil: 'x' }, c: { ...base, backoffUntil: '5' } }))
+
+    expect(loadCache(s, NOON).a).toMatchObject({ quotaUntil: null, backoffUntil: null })
+    expect(Object.keys(loadCache(s, NOON))).toEqual(['a'])
+  })
+
+  it('treats a fetch time in the future as not set', () => {
+    const s = store(JSON.stringify({ a: { employees: [], entries: [], employeesFetchedAt: NOON + HOUR, timesFetchedAt: NOON + HOUR } }))
+
+    expect(loadCache(s, NOON).a).toMatchObject({ employeesFetchedAt: null, timesFetchedAt: null })
   })
 
   it('drops only the malformed company', () => {

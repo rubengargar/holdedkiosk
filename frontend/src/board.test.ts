@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TimeEntry } from './api'
-import { applyClock, buildStatuses, dayStart, formatHHMM, isStaleTimes, mergePaused, prunePaused, trackedMs } from './board'
+import { applyClock, buildStatuses, dayStart, formatAge, formatHHMM, isStaleTimes, mergePaused, prunePaused, trackedMs } from './board'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -187,5 +187,21 @@ describe('prunePaused', () => {
     ]
 
     expect([...prunePaused(new Set(['a', 'b', 'c']), entries)]).toEqual(['a'])
+  })
+})
+
+describe('formatAge', () => {
+  it.each([
+    [null, 'Sin datos todavía'],
+    [NOON, 'Actualizado ahora'],
+    [NOON - 59_000, 'Actualizado ahora'],
+    [NOON + HOUR, 'Actualizado ahora'],
+    [NOON - 12 * MIN, 'Actualizado hace 12 min'],
+    [NOON - 59 * MIN, 'Actualizado hace 59 min'],
+    [NOON - 90 * MIN, 'Actualizado hace 1 h'],
+    [NOON - 5 * HOUR, 'Actualizado hace 5 h'],
+    [NOON - 50 * HOUR, 'Actualizado hace 2 d']
+  ])('writes the age of %s as "%s"', (fetchedAt, text) => {
+    expect(formatAge(fetchedAt, NOON)).toBe(text)
   })
 })

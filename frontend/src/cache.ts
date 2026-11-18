@@ -1,12 +1,15 @@
 import type { Employee, TimeEntry } from './api'
 import type { KeyValueStore } from './accounts'
 import { dayStart } from './board'
+import { MAX_BACKOFF_MS, MAX_QUOTA_AHEAD_MS } from './refresh'
 
 export interface CachedState {
   employees: Employee[]
   entries: TimeEntry[]
   employeesFetchedAt: number | null
   timesFetchedAt: number | null
+  quotaUntil: number | null
+  backoffUntil: number | null
 }
 
 export const STATE_KEY = 'kiosk_state'
@@ -27,18 +30,28 @@ const isEntry = (value: unknown): value is TimeEntry =>
   (value.end === null || (typeof value.end === 'number' && Number.isFinite(value.end))) &&
   typeof value.paused === 'boolean'
 
+// A time from a clock that has since gone backwards counts as not set.
+const past = (time: number | null, now: number) => (time != null && time <= now ? time : null)
+
+// A block already over, or implausibly far ahead (a clock that was wrong when it was saved), is dropped.
+const upcoming = (time: number | null, now: number, maxAhead: number) =>
+  time != null && time > now && time <= now + maxAhead ? time : null
+
 function parseCached(value: unknown, now: number): CachedState | null {
   if (!isRecord(value)) return null
-  const { employees, entries, employeesFetchedAt, timesFetchedAt } = value
+  const { employees, entries, employeesFetchedAt, timesFetchedAt, quotaUntil = null, backoffUntil = null } = value
   if (!Array.isArray(employees) || !employees.every(isEmployee)) return null
   if (!Array.isArray(entries) || !entries.every(isEntry)) return null
   if (!isTime(employeesFetchedAt) || !isTime(timesFetchedAt)) return null
+  if (!isTime(quotaUntil) || !isTime(backoffUntil)) return null
   const today = dayStart(now)
   return {
     employees,
     entries: entries.filter(entry => entry.end === null || entry.start >= today),
-    employeesFetchedAt,
-    timesFetchedAt
+    employeesFetchedAt: past(employeesFetchedAt, now),
+    timesFetchedAt: past(timesFetchedAt, now),
+    quotaUntil: upcoming(quotaUntil, now, MAX_QUOTA_AHEAD_MS),
+    backoffUntil: upcoming(backoffUntil, now, MAX_BACKOFF_MS)
   }
 }
 

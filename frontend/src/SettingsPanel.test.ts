@@ -107,13 +107,14 @@ describe('settings panel', () => {
 
     expect(radios().map(r => r.text())).toEqual(['15 min', '30 min', '60 min', 'Solo manual'])
     expect(radios().filter(r => r.attributes('aria-checked') === 'true').map(r => r.text())).toEqual(['30 min'])
-    expect(companySettings(wrapper).text()).toContain('Unas 440 llamadas al mes')
+    expect(companySettings(wrapper).text()).toContain('Unas 528 llamadas al mes')
 
     await radios()[3].trigger('click')
 
     expect(kiosk().accounts.value.map(a => a.refreshMinutes)).toEqual([0, 30])
     expect(companySettings(wrapper).text()).toContain('Unas 0 llamadas al mes')
     expect(companySettings(wrapper).text()).toContain('unas 22 de la lista de empleados')
+    expect(companySettings(wrapper).text()).toContain('por tablet')
   })
 
   it('the plus button swaps company settings for the add form and focuses its first input', async () => {

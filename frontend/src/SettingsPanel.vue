@@ -202,7 +202,8 @@ watch(
         </div>
         <p class="text-xs text-gray-500 mt-1">
           Unas {{ estimate.times }} llamadas al mes en segundo plano, más unas {{ estimate.employees }} de la lista de empleados
-          (10 horas de uso al día, 22 días laborables). Cada fichaje es una llamada, unas 4 por empleado y día.
+          (10 horas de uso al día más 2 horas de lectura tras el último toque, 22 días laborables). Cada fichaje es una
+          llamada, unas 4 por empleado y día. Las cifras son por tablet: dos tablets con la misma cuenta de Holded suman el doble.
         </p>
 
         <h5 class="text-sm font-medium text-gray-700 mt-4 mb-1">Ocultar/Mostrar usuarios</h5>
