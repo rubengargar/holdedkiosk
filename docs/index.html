@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Holded Kiosk: una tablet en la pared para fichar en Holded</title>
+<title>Kiosk for Holded: una tablet en la pared para fichar en Holded</title>
 <meta name="description" content="Kiosko de fichaje para Holded. Una tablet en la pared de la oficina: cada persona toca su nombre para fichar entrada, salida y pausas. Código abierto, se despliega en tu cuenta de Cloudflare.">
 <meta name="color-scheme" content="light dark">
 <link rel="canonical" href="https://rubengargar.github.io/holdedkiosk/">
 <meta property="og:type" content="website">
 <meta property="og:locale" content="es_ES">
-<meta property="og:title" content="Holded Kiosk: una tablet en la pared para fichar en Holded">
+<meta property="og:title" content="Kiosk for Holded: una tablet en la pared para fichar en Holded">
 <meta property="og:description" content="Kiosko de fichaje de código abierto para Holded. Una tablet en la pared de la oficina: cada persona toca su nombre para fichar entrada, salida y pausas. Se despliega en tu cuenta de Cloudflare.">
 <meta property="og:url" content="https://rubengargar.github.io/holdedkiosk/">
 <meta property="og:image" content="https://rubengargar.github.io/holdedkiosk/img/board.png">
 <meta name="twitter:card" content="summary_large_image">
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Holded Kiosk", "description": "Kiosko de fichaje de código abierto para Holded. Una tablet en la pared de la oficina: cada persona toca su nombre para fichar entrada, salida y pausas. Se despliega en tu cuenta de Cloudflare.", "url": "https://rubengargar.github.io/holdedkiosk/", "applicationCategory": "BusinessApplication", "applicationSubCategory": "Control horario", "operatingSystem": "Web, Android, iPadOS", "inLanguage": "es", "isAccessibleForFree": true, "license": "https://opensource.org/licenses/MIT", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"}, "codeRepository": "https://github.com/rubengargar/holdedkiosk", "screenshot": "https://rubengargar.github.io/holdedkiosk/img/board.png", "dateModified": "2026-11-18", "featureList": ["Fichar entrada, salida, pausa y reanudar en Holded", "Varias empresas en una misma tablet", "Clave de API cifrada en el servidor", "Contraseña opcional para el kiosko", "Despliegue en Cloudflare Workers con un clic"]}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Kiosk for Holded", "description": "Kiosko de fichaje de código abierto para Holded. Una tablet en la pared de la oficina: cada persona toca su nombre para fichar entrada, salida y pausas. Se despliega en tu cuenta de Cloudflare.", "url": "https://rubengargar.github.io/holdedkiosk/", "applicationCategory": "BusinessApplication", "applicationSubCategory": "Control horario", "operatingSystem": "Web, Android, iPadOS", "inLanguage": "es", "isAccessibleForFree": true, "license": "https://opensource.org/licenses/MIT", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"}, "codeRepository": "https://github.com/rubengargar/holdedkiosk", "screenshot": "https://rubengargar.github.io/holdedkiosk/img/board.png", "dateModified": "2026-11-18", "featureList": ["Fichar entrada, salida, pausa y reanudar en Holded", "Varias empresas en una misma tablet", "Clave de API cifrada en el servidor", "Contraseña opcional para el kiosko", "Despliegue en Cloudflare Workers con un clic"]}</script>
 <style>
 @font-face {
   font-family: "Overpass";
@@ -264,6 +264,8 @@ section { padding-block: clamp(3rem, 7vw, 5.5rem); }
 section + section { border-top: 1px solid var(--line); }
 .lede { margin-top: 0.9rem; color: var(--ink-soft); max-width: 40rem; }
 
+.what { padding-block: clamp(2.2rem, 5vw, 3.5rem); }
+.what .lede { max-width: 46rem; font-size: 1.1em; }
 .works-with { padding-block: 2rem; }
 .works-with .wrap { display: grid; gap: 1.4rem 3rem; grid-template-columns: minmax(0, 1fr); }
 .brand { display: flex; align-items: center; gap: 1.1rem; }
@@ -364,6 +366,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 .pair figcaption { margin-top: 0.7rem; color: var(--ink-soft); font-size: 0.95em; }
 @media (min-width: 48rem) { .pair { grid-template-columns: 1fr 1fr; } }
 
+.faq { display: grid; gap: 1.8rem 3rem; grid-template-columns: minmax(0, 1fr); margin-top: 2rem; }
+.faq p { margin-top: 0.5rem; color: var(--ink-soft); }
+@media (min-width: 52rem) { .faq { grid-template-columns: 1fr 1fr; } }
 .close { text-align: left; }
 .close .actions { margin-top: 1.6rem; display: flex; flex-wrap: wrap; gap: 0.8rem; align-items: center; }
 
@@ -379,11 +384,12 @@ footer p { max-width: 46rem; }
 <header class="scene">
   <div class="wrap">
     <div class="topbar">
-      <span>Holded Kiosk</span>
+      <span>Kiosk for Holded</span>
       <nav aria-label="Secciones">
         <a href="#despliegue">Despliegue</a>
         <a href="#tablet">La tablet</a>
         <a href="#seguridad">Seguridad</a>
+        <a href="#preguntas">Preguntas</a>
         <a href="https://github.com/rubengargar/holdedkiosk">GitHub</a>
       </nav>
     </div>
@@ -415,6 +421,13 @@ footer p { max-width: 46rem; }
 </header>
 
 <main>
+
+<section class="what" aria-labelledby="que-es">
+  <div class="wrap">
+    <h2 id="que-es">¿Qué es Kiosk for Holded?</h2>
+    <p class="lede">Kiosk for Holded es un kiosko de fichaje de código abierto para empresas que usan Holded. Convierte cualquier tablet en un punto de control horario colgado en la pared: cada persona toca su nombre para fichar entrada, salida o pausa, y el registro se guarda en Holded mediante su API oficial. Es gratuito y se instala en tu propia cuenta de Cloudflare.</p>
+  </div>
+</section>
 
 <section class="works-with" aria-label="Con qué funciona">
   <div class="wrap">
@@ -584,6 +597,22 @@ footer p { max-width: 46rem; }
   </div>
 </section>
 
+<section id="preguntas">
+  <div class="wrap">
+    <h2>Preguntas frecuentes</h2>
+    <div class="faq">
+      <div><h3>¿Cómo se ficha en Holded con una tablet compartida?</h3><p>Con Kiosk for Holded abierto en la tablet, cada persona busca su nombre y pulsa Entrada, Pausa, Reanudar o Salida. El fichaje aparece en el control horario de Holded igual que si se hubiera hecho desde su aplicación.</p></div>
+      <div><h3>¿Cuánto cuesta?</h3><p>El programa es gratuito y de código abierto, con licencia MIT. Se ejecuta en el plan gratuito de Cloudflare. El único gasto opcional es la licencia de Fully Kiosk Browser para bloquear una tablet Android: 8,90 € más impuestos por dispositivo, pago único.</p></div>
+      <div><h3>¿Qué necesito para instalarlo?</h3><p>Una cuenta de Cloudflare, una de GitHub, acceso de administrador a Holded para crear una clave de API, y una tablet con navegador. El despliegue se hace con un botón y lleva unos diez minutos.</p></div>
+      <div><h3>¿Cuántas llamadas a la API de Holded gasta?</h3><p>Una por cada fichaje y unas 550 al mes para refrescar la pantalla, por tablet, con el refresco de 30 minutos. Con 4 fichajes por persona y día son 88 llamadas al mes por empleado. El plan Basic de Holded incluye 2.000 llamadas al mes, suficiente para 16 personas.</p></div>
+      <div><h3>¿Sirve para varias empresas en la misma oficina?</h3><p>Sí. Cada empresa se añade con su propia clave de Holded y aparece como un círculo con su logo. Un toque cambia de plantilla, y cada empresa gasta la cuota de su propia cuenta.</p></div>
+      <div><h3>¿Dónde se guardan los datos de los empleados?</h3><p>En Holded. El kiosko no tiene base de datos: solo muestra el nombre de cada persona y su tiempo del día. La clave de API se guarda cifrada, y el servidor nunca entrega a la tablet datos bancarios ni salariales.</p></div>
+      <div><h3>¿Cumple con el registro horario obligatorio?</h3><p>Los fichajes quedan en el control horario de Holded, que es donde se generan los informes. El kiosko no identifica a quien toca la pantalla, así que conviene valorar si ese nivel de verificación basta para tu empresa.</p></div>
+      <div><h3>¿Es un producto de Holded?</h3><p>No. Kiosk for Holded es un proyecto independiente que usa la API pública de Holded. No está afiliado a Holded ni cuenta con su respaldo.</p></div>
+    </div>
+  </div>
+</section>
+
 <section class="close">
   <div class="wrap">
     <h2>Diez minutos y un clavo en la pared</h2>
@@ -599,8 +628,8 @@ footer p { max-width: 46rem; }
 
 <footer>
   <div class="wrap">
-    <p>Holded Kiosk es un proyecto independiente de código abierto con licencia MIT. No está afiliado a Holded ni a Cloudflare, ni cuenta con su respaldo. «Holded» y «Cloudflare», y sus logotipos, son marcas de sus respectivos titulares y se muestran solo para indicar con qué servicios funciona.</p>
-    <p><a href="https://github.com/rubengargar/holdedkiosk">Código en GitHub</a></p>
+    <p>Kiosk for Holded es un proyecto independiente de código abierto con licencia MIT. No está afiliado a Holded ni a Cloudflare, ni cuenta con su respaldo. «Holded» y «Cloudflare», y sus logotipos, son marcas de sus respectivos titulares y se muestran solo para indicar con qué servicios funciona.</p>
+    <p><a href="https://github.com/rubengargar/holdedkiosk">Código en GitHub</a>. Página actualizada el <time datetime="2026-11-18">18 de noviembre de 2026</time>.</p>
   </div>
 </footer>
 
