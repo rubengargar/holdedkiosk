@@ -18,11 +18,11 @@ async function onSubmit() {
     return
   }
 
+  token.value = ''
   busy.value = true
   error.value = ''
   try {
     await props.submit(trimmed)
-    token.value = ''
   } catch (e) {
     error.value = `Token inválido o error de red: ${describeError(e)}`
   } finally {

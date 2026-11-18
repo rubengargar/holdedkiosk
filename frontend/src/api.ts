@@ -62,6 +62,17 @@ async function request<T>(token: string, path: string, method: 'GET' | 'POST' = 
   }
 }
 
+export interface Sealed {
+  token: string
+  employees: Employee[]
+}
+
+export const SEALED_PREFIX = 'sealed.'
+
+export function sealKey(key: string): Promise<Sealed> {
+  return request<Sealed>(key, '/api/seal', 'POST')
+}
+
 export function getEmployees(token: string): Promise<Employee[]> {
   return request<Employee[]>(token, '/api/employees')
 }
@@ -79,6 +90,9 @@ export function clock(token: string, employeeId: string, action: ClockAction): P
 }
 
 export function describeError(e: unknown): string {
+  if (e instanceof ApiError && e.status === 401 && e.message === 'Sealed token is not valid for this kiosk') {
+    return 'Este kiosko ya no reconoce el token guardado de la empresa. Vuelve a introducir la clave de Holded en Ajustes, con "Cambiar token".'
+  }
   if (e instanceof ApiError && e.status === 429) {
     return e.message.startsWith('Holded request failed')
       ? 'Holded está limitando las peticiones. Se mantienen los datos actuales y se reintentará más tarde.'

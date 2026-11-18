@@ -1,14 +1,7 @@
 import type { Env } from './env';
+import { HttpError } from './errors';
 import { HoldedError, clock, type ClockAction, getAccountInfo, listActiveEmployees, listEntriesSince } from './holded';
-
-class HttpError extends Error {
-	constructor(
-		readonly status: number,
-		message: string
-	) {
-		super(message);
-	}
-}
+import { isSealed, seal, unseal } from './seal';
 
 interface Context {
 	env: Env;
@@ -20,6 +13,7 @@ interface Context {
 interface Route {
 	method: string;
 	pattern: RegExp;
+	plainKey?: boolean;
 	handler: (context: Context) => Promise<unknown>;
 }
 
@@ -38,6 +32,16 @@ const clockRoute = (action: ClockAction): Route => ({
 });
 
 const routes: Route[] = [
+	{
+		method: 'POST',
+		pattern: /^\/api\/seal$/,
+		plainKey: true,
+		handler: async ({ env, key }) => {
+			if (isSealed(key)) throw new HttpError(400, 'Expected a plain Holded API key');
+			const token = await seal(env, key);
+			return { token, employees: await listActiveEmployees(env, key) };
+		},
+	},
 	{ method: 'GET', pattern: /^\/api\/account$/, handler: ({ env, key }) => getAccountInfo(env, key) },
 	{ method: 'GET', pattern: /^\/api\/employees$/, handler: ({ env, key }) => listActiveEmployees(env, key) },
 	{
@@ -104,7 +108,10 @@ async function dispatch(request: Request, env: Env): Promise<unknown> {
 	const url = new URL(request.url);
 	for (const route of routes) {
 		const match = route.method === request.method ? route.pattern.exec(url.pathname) : null;
-		if (match) return route.handler({ env, key, url, params: match.slice(1) });
+		if (match) {
+			const holdedKey = route.plainKey || !isSealed(key) ? key : await unseal(env, key);
+			return route.handler({ env, key: holdedKey, url, params: match.slice(1) });
+		}
 	}
 	throw new HttpError(404, 'Not found');
 }

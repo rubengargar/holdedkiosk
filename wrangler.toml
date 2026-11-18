@@ -11,6 +11,11 @@ directory = "./frontend/dist"
 not_found_handling = "single-page-application"
 run_worker_first = ["/api/*"]
 
+# No id on purpose: wrangler deploy and the Deploy to Cloudflare button create the namespace
+# and later deploys reuse it. It holds the key that seals Holded API keys.
+[[kv_namespaces]]
+binding = "KIOSK_KEYS"
+
 [[ratelimits]]
 name = "RATE_LIMITER"
 namespace_id = "1001"

@@ -81,3 +81,12 @@ describe('api base', () => {
     )
   })
 })
+
+describe('describeError on a sealed token this Worker cannot open', () => {
+  it('tells the user to enter the key again', async () => {
+    const { describeError, ApiError } = await loadApi(undefined)
+
+    expect(describeError(new ApiError(401, 'Sealed token is not valid for this kiosk'))).toContain('Vuelve a introducir')
+    expect(describeError(new ApiError(401, 'Holded request failed: Unauthorized'))).toBe('Holded request failed: Unauthorized')
+  })
+})

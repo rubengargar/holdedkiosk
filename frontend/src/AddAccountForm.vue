@@ -20,12 +20,13 @@ async function onSubmit() {
     return
   }
 
+  const typedName = name.value.trim()
+  token.value = ''
   busy.value = true
   error.value = ''
   try {
-    await props.submit(name.value.trim(), trimmedToken)
+    await props.submit(typedName, trimmedToken)
     name.value = ''
-    token.value = ''
   } catch (e) {
     error.value = `Token inválido o error de red: ${describeError(e)}`
   } finally {

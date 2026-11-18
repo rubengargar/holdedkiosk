@@ -444,3 +444,214 @@ describe('rate limiting', () => {
 		expect((await call('/api/employees')).status).toBe(200);
 	});
 });
+
+describe('sealed tokens', () => {
+	const PLAIN = 'key-secret-plain';
+
+	class MemoryKv {
+		reads = 0;
+		private items = new Map<string, string>();
+		constructor(private latency = 0) {}
+		async get(name: string) {
+			this.reads++;
+			await new Promise((resolve) => setTimeout(resolve, this.latency));
+			return this.items.get(name) ?? null;
+		}
+		async put(name: string, value: string) {
+			await new Promise((resolve) => setTimeout(resolve, this.latency));
+			this.items.set(name, value);
+		}
+		asBinding() {
+			return this as unknown as KVNamespace;
+		}
+	}
+
+	const sealedEnv = (kv = new MemoryKv()): Env => ({ ...ENV, KIOSK_KEYS: kv.asBinding() });
+
+	const seal = async (env: Env, key = PLAIN) => {
+		const response = await call('/api/seal', { method: 'POST', key, env });
+		return { response, body: (await response.json()) as { token: string; employees: unknown[] } };
+	};
+
+	const authorizations = () => upstreamCalls.map((c) => new Headers(c.init.headers).get('authorization'));
+
+	it('seals a key with one Holded employees call and returns the employees', async () => {
+		stubUpstream(() => page([employee('1'.repeat(24), 'Alfa')]));
+
+		const { response, body } = await seal(sealedEnv());
+
+		expect(response.status).toBe(200);
+		expect(body.token).toMatch(/^sealed\.v1\.[\w-]+\.[\w-]+$/);
+		expect(body.employees).toEqual([{ id: '1'.repeat(24), name: 'Alfa' }]);
+		expect(upstreamCalls.map((c) => c.url.pathname)).toEqual(['/api/v2/employees']);
+		expect(authorizations()).toEqual([`Bearer ${PLAIN}`]);
+	});
+
+	it('never puts the plain key in the seal response', async () => {
+		const { response, body } = await seal(sealedEnv());
+
+		expect(JSON.stringify(body)).not.toContain(PLAIN);
+		expect(JSON.stringify(body)).not.toContain(btoa(PLAIN).replaceAll('=', ''));
+		expect(response.headers.get('X-Holded-API-Key')).toBeNull();
+	});
+
+	it('produces a different token every time for the same key', async () => {
+		const env = sealedEnv();
+
+		expect((await seal(env)).body.token).not.toBe((await seal(env)).body.token);
+	});
+
+	it('does not seal when Holded rejects the key', async () => {
+		stubUpstream(() => jsonResponse({ detail: 'Unauthorized' }, 401));
+
+		const { response, body } = await seal(sealedEnv());
+
+		expect(response.status).toBe(401);
+		expect(body).not.toHaveProperty('token');
+	});
+
+	it('refuses to seal an already sealed token', async () => {
+		const env = sealedEnv();
+		const { body } = await seal(env);
+		upstreamCalls.length = 0;
+
+		const response = await call('/api/seal', { method: 'POST', key: body.token, env });
+
+		expect(response.status).toBe(400);
+		expect(upstreamCalls).toHaveLength(0);
+	});
+
+	it('answers 503 on seal when the Worker has no KV binding, and still serves plain keys', async () => {
+		expect((await seal(ENV)).response.status).toBe(503);
+		expect((await call('/api/employees', { key: PLAIN })).status).toBe(200);
+	});
+
+	it('passes the CORS preflight for POST /api/seal', async () => {
+		const response = await call('/api/seal', {
+			method: 'OPTIONS',
+			key: null,
+			headers: { Origin: 'https://kiosk.test', 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'x-holded-api-key' },
+		});
+
+		expect(response.status).toBe(204);
+		expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://kiosk.test');
+		expect(response.headers.get('Access-Control-Allow-Methods')).toContain('POST');
+		expect(response.headers.get('Access-Control-Allow-Headers')).toContain('x-holded-api-key');
+	});
+
+	describe('using a sealed token', () => {
+		let env: Env;
+		let token: string;
+
+		beforeEach(async () => {
+			env = sealedEnv();
+			token = (await seal(env)).body.token;
+			upstreamCalls.length = 0;
+			stubUpstream((url) => (url.pathname === '/api/v2/account' ? jsonResponse({ name: 'Acme', logo: null }) : page([])));
+		});
+
+		it.each([
+			['/api/account', 'GET'],
+			['/api/employees', 'GET'],
+			[`/api/times?since=${SINCE}`, 'GET'],
+			[`/api/employees/${ID}/clock-in`, 'POST'],
+			[`/api/employees/${ID}/clock-out`, 'POST'],
+			[`/api/employees/${ID}/pause`, 'POST'],
+			[`/api/employees/${ID}/unpause`, 'POST'],
+		])('%s authenticates upstream with the plain key', async (path, method) => {
+			const response = await call(path, { method, key: token, env });
+
+			expect(response.status).toBe(200);
+			expect(upstreamCalls).toHaveLength(1);
+			expect(authorizations()).toEqual([`Bearer ${PLAIN}`]);
+		});
+
+		it('is rejected with 401 and no Holded call when sealed by another Worker key', async () => {
+			const other = sealedEnv();
+
+			const response = await call('/api/employees', { key: token, env: other });
+
+			expect(response.status).toBe(401);
+			expect(await response.json()).toEqual({ error: 'Sealed token is not valid for this kiosk' });
+			expect(upstreamCalls).toHaveLength(0);
+		});
+
+		it.each([
+			['ciphertext', (parts: string[]) => [...parts.slice(0, 3), flip(parts[3])]],
+			['iv', (parts: string[]) => [...parts.slice(0, 2), flip(parts[2]), parts[3]]],
+			['version', (parts: string[]) => ['sealed', 'v2', parts[2], parts[3]]],
+			['shape', () => ['sealed', 'v1', 'AAAA']],
+			['encoding', (parts: string[]) => [...parts.slice(0, 3), '***']],
+		])('is rejected with 401 and no Holded call when the %s is tampered', async (_name, tamper) => {
+			const tampered = tamper(token.split('.')).join('.');
+
+			const response = await call('/api/employees', { key: tampered, env });
+
+			expect(response.status).toBe(401);
+			expect(await response.json()).toEqual({ error: 'Sealed token is not valid for this kiosk' });
+			expect(upstreamCalls).toHaveLength(0);
+		});
+
+		it('is rejected when the ciphertext was made without the purpose binding', async () => {
+			const kv = new MemoryKv();
+			const bound = sealedEnv(kv);
+			await seal(bound);
+			const raw = (await kv.get('sealing-key-v1')) as string;
+			const key = await crypto.subtle.importKey('raw', Uint8Array.from(atob(raw.replaceAll('-', '+').replaceAll('_', '/')), (c) => c.charCodeAt(0)), 'AES-GCM', false, ['encrypt']);
+			const iv = crypto.getRandomValues(new Uint8Array(12));
+			const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(PLAIN));
+			const b64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+
+			const response = await call('/api/employees', { key: `sealed.v1.${b64(iv)}.${b64(new Uint8Array(encrypted))}`, env: bound });
+
+			expect(response.status).toBe(401);
+		});
+
+		it('answers 503 when the Worker has no KV binding', async () => {
+			const response = await call('/api/employees', { key: token, env: ENV });
+
+			expect(response.status).toBe(503);
+			expect(upstreamCalls).toHaveLength(0);
+		});
+
+		it('still accepts a plain key', async () => {
+			const response = await call('/api/employees', { key: 'key-plain', env });
+
+			expect(response.status).toBe(200);
+			expect(authorizations()).toEqual(['Bearer key-plain']);
+		});
+	});
+
+	it('reads KV only on first use, not on every request', async () => {
+		const kv = new MemoryKv();
+		const env = sealedEnv(kv);
+
+		const { body } = await seal(env);
+		const readsAfterFirstSeal = kv.reads;
+		await call('/api/employees', { key: body.token, env });
+		await seal(env);
+
+		expect(readsAfterFirstSeal).toBe(2);
+		expect(kv.reads).toBe(readsAfterFirstSeal);
+	});
+
+	it('converges on one key when two isolates seal for the first time at once', async () => {
+		const kv = new MemoryKv(5);
+		const env = sealedEnv(kv);
+		vi.resetModules();
+		const other = (await import('../src/index')).default;
+		const sealWith = (w: typeof worker) =>
+			w.fetch(new Request('https://worker.test/api/seal', { method: 'POST', headers: { 'X-Holded-API-Key': PLAIN } }), env).then((r) => r.json() as Promise<{ token: string }>);
+
+		const [a, b] = await Promise.all([sealWith(worker), sealWith(other)]);
+
+		for (const [token, reader] of [[a.token, other], [b.token, worker]] as const) {
+			const response = await reader.fetch(new Request('https://worker.test/api/employees', { headers: { 'X-Holded-API-Key': token } }), env);
+			expect(response.status).toBe(200);
+		}
+	});
+});
+
+function flip(part: string): string {
+	return (part[0] === 'A' ? 'B' : 'A') + part.slice(1);
+}

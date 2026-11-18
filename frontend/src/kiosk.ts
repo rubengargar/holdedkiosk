@@ -14,6 +14,8 @@ import {
   getAccountInfo,
   getEmployees,
   getTimes,
+  SEALED_PREFIX,
+  sealKey,
   type AccountInfo,
   type ClockAction,
   type Employee,
@@ -166,8 +168,8 @@ export function useKiosk() {
     }
   }
 
-  async function addAccount(name: string, token: string) {
-    const employees = await getEmployees(token)
+  async function addAccount(name: string, key: string) {
+    const { token, employees } = await sealKey(key)
     const info = await fetchAccountInfo(token)
     const holdedName = info?.name.trim()
     const account: Account = {
@@ -186,11 +188,10 @@ export function useKiosk() {
     activeId.value = account.id
   }
 
-  async function changeToken(id: string, token: string) {
-    const trimmed = token.trim()
-    const employees = await getEmployees(trimmed)
-    const info = await fetchAccountInfo(trimmed)
-    accounts.value = accounts.value.map(a => (a.id === id ? { ...a, token: trimmed } : a))
+  async function changeToken(id: string, key: string) {
+    const { token, employees } = await sealKey(key.trim())
+    const info = await fetchAccountInfo(token)
+    accounts.value = accounts.value.map(a => (a.id === id ? { ...a, token } : a))
     applyInfo(id, info)
     const state = states[id]
     if (state) {
@@ -199,6 +200,24 @@ export function useKiosk() {
       state.error = ''
       const account = accounts.value.find(a => a.id === id)
       if (account) await loadTimes(account, state, Date.now())
+    }
+  }
+
+  // Runs once per page load. A failure leaves the plain token working and is retried on the next load.
+  async function sealLegacyAccounts() {
+    for (const account of accounts.value.filter(a => !a.token.startsWith(SEALED_PREFIX))) {
+      try {
+        const { token, employees } = await sealKey(account.token)
+        if (tokenReplaced(account)) continue
+        accounts.value = accounts.value.map(a => (a.id === account.id ? { ...a, token } : a))
+        const state = states[account.id]
+        if (state && state.employeesFetchedAt == null) {
+          state.employees = sortByName(employees)
+          state.employeesFetchedAt = Date.now()
+        }
+      } catch {
+        continue
+      }
     }
   }
 
@@ -283,7 +302,7 @@ export function useKiosk() {
   }
 
   onMounted(() => {
-    syncActive('view')
+    void sealLegacyAccounts().then(() => syncActive('view'))
     tickTimer = window.setInterval(() => {
       now.value = Date.now()
     }, TICK_MS)

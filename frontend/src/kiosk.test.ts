@@ -27,6 +27,7 @@ interface World {
   employees: Employee[]
   times: () => TimeEntry[] | Promise<TimeEntry[]>
   badTokens: Set<string>
+  sealStatus: number
   failingActions: Set<string>
   info: AccountInfo
   infoStatus: number
@@ -47,6 +48,11 @@ async function fakeFetch(input: string, init: RequestInit = {}): Promise<Respons
   requests.push({ method, path: url.pathname, token })
 
   if (world.badTokens.has(token)) return reply({ error: 'Holded request failed', detail: 'Unauthorized' }, 401)
+  if (url.pathname === '/api/seal') {
+    return world.sealStatus === 200
+      ? reply({ token: `sealed.${token}`, employees: world.employees })
+      : reply({ error: 'Sealing is not available on this Worker' }, world.sealStatus)
+  }
   if (url.pathname === '/api/account') {
     return world.infoStatus === 200 ? reply(world.info) : reply({ error: 'Holded request failed', detail: 'Forbidden' }, world.infoStatus)
   }
@@ -80,7 +86,7 @@ function seedAccounts(...ids: string[]) {
   const accounts = ids.map(id => ({
     id,
     name: `Empresa ${id}`,
-    token: `token-${id}`,
+    token: `sealed.token-${id}`,
     hiddenEmployeeIds: ['hidden'],
     logo: null
   }))
@@ -113,6 +119,7 @@ beforeEach(async () => {
     employees: [BEA, ANA],
     times: () => [],
     badTokens: new Set(),
+    sealStatus: 200,
     failingActions: new Set(),
     info: { name: 'Acme Holded', logoUrl: 'https://app.holded.com/box/account/abc' },
     infoStatus: 200
@@ -333,11 +340,11 @@ describe('accounts', () => {
     await kiosk.changeToken('a', ' token-new ')
 
     expect(requests).toEqual([
-      { method: 'GET', path: '/api/employees', token: 'token-new' },
-      { method: 'GET', path: '/api/account', token: 'token-new' },
-      { method: 'GET', path: '/api/times', token: 'token-new' }
+      { method: 'POST', path: '/api/seal', token: 'token-new' },
+      { method: 'GET', path: '/api/account', token: 'sealed.token-new' },
+      { method: 'GET', path: '/api/times', token: 'sealed.token-new' }
     ])
-    expect(kiosk.accounts.value[0]).toMatchObject({ token: 'token-new', hiddenEmployeeIds: ['hidden'] })
+    expect(kiosk.accounts.value[0]).toMatchObject({ token: 'sealed.token-new', hiddenEmployeeIds: ['hidden'] })
     expect(kiosk.activeState.value?.employees).toEqual([ANA])
   })
 
@@ -348,9 +355,9 @@ describe('accounts', () => {
 
     await expect(kiosk.changeToken('a', 'token-bad')).rejects.toThrow()
 
-    expect(kiosk.accounts.value[0].token).toBe('token-a')
+    expect(kiosk.accounts.value[0].token).toBe('sealed.token-a')
     expect(kiosk.activeState.value?.employees).toEqual([ANA, BEA])
-    expect(take()).toEqual(['GET /api/employees'])
+    expect(take()).toEqual(['POST /api/seal'])
   })
 
   it('switches to the next account when the active one is deleted', async () => {
@@ -375,7 +382,7 @@ describe('company data from Holded', () => {
   function seedLegacyAccount(name = 'Empresa 1') {
     localStorage.setItem(
       'kiosk_accounts',
-      JSON.stringify([{ id: 'a', name, token: 'token-a', hiddenEmployeeIds: [] }])
+      JSON.stringify([{ id: 'a', name, token: 'sealed.token-a', hiddenEmployeeIds: [] }])
     )
   }
 
@@ -433,7 +440,7 @@ describe('company data from Holded', () => {
 
     await kiosk.changeToken('a', 'token-new')
 
-    expect(infoCalls()).toEqual([{ method: 'GET', path: '/api/account', token: 'token-new' }])
+    expect(infoCalls()).toEqual([{ method: 'GET', path: '/api/account', token: 'sealed.token-new' }])
     expect(kiosk.accounts.value[0].logo).toBe('https://app.holded.com/box/account/abc')
   })
 
@@ -447,7 +454,7 @@ describe('company data from Holded', () => {
 
     await kiosk.changeToken('a', 'token-new')
 
-    expect(kiosk.accounts.value[0]).toMatchObject({ token: 'token-new', logo: 'https://app.holded.com/old' })
+    expect(kiosk.accounts.value[0]).toMatchObject({ token: 'sealed.token-new', logo: 'https://app.holded.com/old' })
   })
 
   it('asks lazily once for an account whose logo was never requested, and never on polls', async () => {
@@ -512,7 +519,7 @@ describe('company data from Holded', () => {
     seedAccounts('a')
     localStorage.setItem(
       'kiosk_accounts',
-      JSON.stringify([{ id: 'a', name: 'Empresa 3', token: 'token-a', hiddenEmployeeIds: [], logo: null }])
+      JSON.stringify([{ id: 'a', name: 'Empresa 3', token: 'sealed.token-a', hiddenEmployeeIds: [], logo: null }])
     )
     const kiosk = await mountKiosk()
 
@@ -527,5 +534,115 @@ describe('company data from Holded', () => {
 
     expect(await kiosk.refreshInfo('a')).toBe(false)
     expect(kiosk.accounts.value[0]).toMatchObject({ name: 'Empresa a', logo: null })
+  })
+})
+
+describe('sealed tokens', () => {
+  const storedTokens = () =>
+    (JSON.parse(localStorage.getItem('kiosk_accounts') ?? '[]') as { token: string }[]).map(a => a.token)
+
+  function seedPlain(...ids: string[]) {
+    localStorage.setItem(
+      'kiosk_accounts',
+      JSON.stringify(ids.map(id => ({ id, name: `Empresa ${id}`, token: `key-${id}`, hiddenEmployeeIds: [], logo: null })))
+    )
+  }
+
+  it('adds a company with one seal, one account call and the usual first times call, and stores only the sealed token', async () => {
+    const kiosk = await mountKiosk()
+    take()
+
+    await kiosk.addAccount('', 'key-new')
+    await settle()
+
+    expect(requests).toEqual([
+      { method: 'POST', path: '/api/seal', token: 'key-new' },
+      { method: 'GET', path: '/api/account', token: 'sealed.key-new' },
+      { method: 'GET', path: '/api/times', token: 'sealed.key-new' }
+    ])
+    expect(storedTokens()).toEqual(['sealed.token-a', 'sealed.key-new'])
+    expect(JSON.stringify(localStorage.getItem('kiosk_accounts'))).not.toContain('"key-new"')
+  })
+
+  it('does not add the company when sealing fails', async () => {
+    const kiosk = await mountKiosk()
+    world.badTokens.add('key-bad')
+
+    await expect(kiosk.addAccount('', 'key-bad')).rejects.toThrow()
+
+    expect(kiosk.accounts.value).toHaveLength(1)
+    expect(storedTokens()).toEqual(['sealed.token-a'])
+  })
+
+  it('stores only the sealed token after a token change', async () => {
+    const kiosk = await mountKiosk()
+
+    await kiosk.changeToken('a', 'key-new')
+
+    expect(storedTokens()).toEqual(['sealed.key-new'])
+  })
+
+  describe('migrating a stored plain key', () => {
+    it('seals each legacy account once, replaces the key and primes the employees, so one employees call per account', async () => {
+      seedPlain('a', 'b')
+
+      const kiosk = await mountKiosk()
+
+      expect(requests.filter(r => r.path === '/api/seal')).toEqual([
+        { method: 'POST', path: '/api/seal', token: 'key-a' },
+        { method: 'POST', path: '/api/seal', token: 'key-b' }
+      ])
+      expect(requests.filter(r => r.path === '/api/employees')).toEqual([])
+      expect(storedTokens()).toEqual(['sealed.key-a', 'sealed.key-b'])
+      expect(kiosk.activeState.value?.employees).toEqual([ANA, BEA])
+      expect(requests.filter(r => r.path === '/api/times')).toEqual([
+        { method: 'GET', path: '/api/times', token: 'sealed.key-a' }
+      ])
+    })
+
+    it('keeps the account working with its plain key when sealing fails, without retrying on polls', async () => {
+      seedPlain('a')
+      world.sealStatus = 503
+
+      const kiosk = await mountKiosk()
+      await vi.advanceTimersByTimeAsync(16 * MIN)
+      setVisibility('hidden')
+      setVisibility('visible')
+      await settle()
+
+      expect(requests.filter(r => r.path === '/api/seal')).toHaveLength(1)
+      expect(storedTokens()).toEqual(['key-a'])
+      expect(kiosk.activeState.value?.employees).toEqual([ANA, BEA])
+      expect(requests.filter(r => r.path === '/api/employees').every(r => r.token === 'key-a')).toBe(true)
+    })
+
+    it('retries sealing on the next load', async () => {
+      seedPlain('a')
+      world.sealStatus = 503
+      await mountKiosk()
+      mounted.forEach(wrapper => wrapper.unmount())
+      requests = []
+      world.sealStatus = 200
+
+      await mountKiosk()
+
+      expect(storedTokens()).toEqual(['sealed.key-a'])
+      expect(requests.filter(r => r.path === '/api/seal')).toHaveLength(1)
+    })
+
+    it('does not touch sealed accounts', async () => {
+      await mountKiosk()
+
+      expect(requests.some(r => r.path === '/api/seal')).toBe(false)
+    })
+
+    it('keeps going when one account is rejected', async () => {
+      seedPlain('a', 'b')
+      world.badTokens.add('key-a')
+
+      await mountKiosk()
+
+      expect(storedTokens()).toEqual(['key-a', 'sealed.key-b'])
+    })
   })
 })

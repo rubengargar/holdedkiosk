@@ -12,6 +12,7 @@ const reply = (body: unknown) =>
 async function fakeFetch(input: string): Promise<Response> {
   const path = new URL(input).pathname
   if (path === '/api/account') return reply({ name: 'Nueva SL', logoUrl: null })
+  if (path === '/api/seal') return reply({ token: 'sealed.new', employees: [{ id: 'e1', name: 'Ana' }] })
   if (path === '/api/employees') return reply([{ id: 'e1', name: 'Ana' }])
   return reply([])
 }
@@ -28,7 +29,7 @@ function memoryStorage() {
 let wrappers: VueWrapper[]
 
 async function mountPanel(...ids: string[]) {
-  const accounts = ids.map(id => ({ id, name: `Empresa ${id}`, token: `token-${id}`, hiddenEmployeeIds: [], logo: null }))
+  const accounts = ids.map(id => ({ id, name: `Empresa ${id}`, token: `sealed.${id}`, hiddenEmployeeIds: [], logo: null }))
   localStorage.setItem('kiosk_accounts', JSON.stringify(accounts))
   const { useKiosk } = await import('./kiosk')
   let kiosk!: Kiosk
@@ -149,6 +150,20 @@ describe('settings panel', () => {
     expect(companySettings(wrapper).exists()).toBe(true)
     expect(wrapper.find('#settings-token').exists()).toBe(false)
     expect(selectedTabs(wrapper).map(t => t.attributes('title'))).toEqual(['Nueva SL'])
+  })
+
+  it('clears the key input as soon as the form is submitted', async () => {
+    const { wrapper } = await mountPanel('a')
+    let release: () => void = () => {}
+    vi.stubGlobal('fetch', () => new Promise<Response>(resolve => (release = () => resolve(reply({ error: 'x' })))))
+    await addTab(wrapper).trigger('click')
+
+    await wrapper.get('#settings-token').setValue('key-typed')
+    await wrapper.get('form').trigger('submit')
+
+    expect((wrapper.get('#settings-token').element as HTMLInputElement).value).toBe('')
+    release()
+    await flushPromises()
   })
 
   it('a failed add stays in the add view', async () => {
