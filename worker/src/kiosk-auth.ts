@@ -4,7 +4,13 @@ const DEFAULT_USER = 'kiosk';
 
 export const CHALLENGE = 'Basic realm="Holded Kiosk", charset="UTF-8"';
 
-export const kioskAuthEnabled = (env: Env): boolean => Boolean(env.KIOSK_PASSWORD);
+export const MIN_PASSWORD_LENGTH = 16;
+
+const kioskPassword = (env: Env): string => (env.KIOSK_PASSWORD ?? '').trim();
+
+export const kioskAuthEnabled = (env: Env): boolean => kioskPassword(env) !== '';
+
+export const kioskPasswordTooShort = (env: Env): boolean => kioskAuthEnabled(env) && kioskPassword(env).length < MIN_PASSWORD_LENGTH;
 
 const sha256 = async (text: string): Promise<Uint8Array> =>
 	new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
@@ -29,8 +35,8 @@ function parseBasic(header: string | null): { user: string; password: string } |
 }
 
 export async function kioskAuthorized(request: Request, env: Env): Promise<boolean> {
-	const expected = env.KIOSK_PASSWORD;
-	if (!expected) return true;
+	if (!kioskAuthEnabled(env)) return true;
+	const expected = kioskPassword(env);
 	const given = parseBasic(request.headers.get('Authorization'));
 	if (!given) return false;
 	const [givenUser, expectedUser, givenPassword, expectedPassword] = await Promise.all([

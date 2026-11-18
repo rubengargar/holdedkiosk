@@ -1,7 +1,7 @@
 import type { Env } from './env';
 import { HttpError } from './errors';
 import { HoldedError, clock, type ClockAction, getAccountInfo, listActiveEmployees, listEntriesSince } from './holded';
-import { CHALLENGE, kioskAuthEnabled, kioskAuthorized } from './kiosk-auth';
+import { CHALLENGE, MIN_PASSWORD_LENGTH, kioskAuthEnabled, kioskAuthorized, kioskPasswordTooShort } from './kiosk-auth';
 import { isSealed, seal, unseal } from './seal';
 
 interface Context {
@@ -131,6 +131,8 @@ export default {
 		const headers = apiHeaders(request, env);
 
 		if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
+
+		if (kioskPasswordTooShort(env)) return json({ error: `KIOSK_PASSWORD must be at least ${MIN_PASSWORD_LENGTH} characters` }, 500, headers);
 
 		try {
 			if (api || kioskAuthEnabled(env)) {

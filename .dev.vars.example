@@ -1,5 +1,7 @@
 # Optional. Setting KIOSK_PASSWORD turns on HTTP Basic authentication for the whole kiosk.
 # Leave it empty (or unset) to keep the kiosk open.
-KIOSK_PASSWORD=
+# It must be at least 16 characters after trimming whitespace, or the Worker answers 500 to everything.
+# Generate one with: openssl rand -base64 24
+KIOSK_PASSWORD=Zm9yLWxvY2FsLWRldi1vbmx5LTE2Y2g=
 # Optional. Defaults to "kiosk".
 KIOSK_USER=

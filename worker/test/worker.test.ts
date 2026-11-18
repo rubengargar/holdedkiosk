@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
 import type { Env } from '../src/env';
+import wranglerToml from '../../wrangler.toml?raw';
 
 const ENV: Env = { ALLOWED_ORIGINS: 'https://kiosk.test,http://localhost:5173', HOLDED_API_BASE: 'https://holded.test' };
 const ID = 'a'.repeat(24);
@@ -771,6 +772,12 @@ describe('kiosk password', () => {
 			expect(limit).not.toHaveBeenCalled();
 		});
 
+		it('treats a whitespace-only password as auth off', async () => {
+			const response = await get('/', { ...ENV, KIOSK_PASSWORD: ' \n\t ', ASSETS });
+			expect(response.status).toBe(200);
+			expect(assetRequests).toEqual(['/']);
+		});
+
 		it('accepts an empty password credential because auth is off', async () => {
 			const response = await get('/', { ...ENV, KIOSK_PASSWORD: '', ASSETS }, basic('kiosk', ''));
 			expect(response.status).toBe(200);
@@ -829,8 +836,8 @@ describe('kiosk password', () => {
 		});
 
 		it('accepts the scheme in any case and a password containing colons', async () => {
-			const env: Env = { ...on, KIOSK_PASSWORD: 'a:b:c' };
-			const response = await get('/', env, basic('kiosk', 'a:b:c').replace('Basic', 'bAsIc'));
+			const env: Env = { ...on, KIOSK_PASSWORD: 'a:b:c:d:e:f:g:h:i' };
+			const response = await get('/', env, basic('kiosk', 'a:b:c:d:e:f:g:h:i').replace('Basic', 'bAsIc'));
 			expect(response.status).toBe(200);
 		});
 
@@ -845,6 +852,32 @@ describe('kiosk password', () => {
 			expect((await get('/', { ...on, KIOSK_USER: 'tablet' }, basic('tablet', PASSWORD))).status).toBe(200);
 			expect((await get('/', { ...on, KIOSK_USER: 'tablet' }, GOOD)).status).toBe(401);
 			expect((await get('/', { ...on, KIOSK_USER: '' }, GOOD)).status).toBe(200);
+		});
+
+		it('does not touch assets for an OPTIONS preflight', async () => {
+			const response = await call('/', { env: on, method: 'OPTIONS', key: null });
+			expect(response.status).toBe(204);
+			expect(assetRequests).toHaveLength(0);
+		});
+
+		it.each([
+			['HEAD /', '/', 'HEAD'],
+			['an upper-case API path', '/API/seal', 'POST'],
+			['a double-slash API path', '//api/seal', 'POST'],
+			['an unknown API route', '/api/x', 'GET'],
+		])('answers 401 without credentials for %s', async (_name, path, httpMethod) => {
+			const response = await call(path, { env: on, method: httpMethod, key: 'key-1' });
+
+			expect(response.status).toBe(401);
+			expect(upstreamCalls).toHaveLength(0);
+			expect(assetRequests).toHaveLength(0);
+		});
+
+		it('trims the secret so a trailing newline is not part of the password', async () => {
+			const env: Env = { ...on, KIOSK_PASSWORD: `${PASSWORD}\n` };
+
+			expect((await get('/', env, GOOD)).status).toBe(200);
+			expect((await get('/', env, basic('kiosk', `${PASSWORD}\n`))).status).toBe(401);
 		});
 
 		it('answers an OPTIONS preflight with 204 without credentials', async () => {
@@ -872,5 +905,40 @@ describe('kiosk password', () => {
 			expect((await get('/', env, basic('kiosk', 'bad'))).status).toBe(401);
 			expect((await get('/', env, GOOD)).status).toBe(200);
 		});
+	});
+	describe('when KIOSK_PASSWORD is shorter than 16 characters', () => {
+		const short: Env = { ...on, KIOSK_PASSWORD: 'a'.repeat(15) };
+
+		it.each([
+			['the page', '/'],
+			['an asset', '/assets/index-abc.js'],
+			['an API route', '/api/employees'],
+		])('fails closed with 500 for %s, with zero upstream or asset calls', async (_name, path) => {
+			const response = await get(path, short, basic('kiosk', 'a'.repeat(15)));
+
+			expect(response.status).toBe(500);
+			expect(await response.json()).toEqual({ error: 'KIOSK_PASSWORD must be at least 16 characters' });
+			expect(upstreamCalls).toHaveLength(0);
+			expect(assetRequests).toHaveLength(0);
+		});
+
+		it('counts the trimmed length', async () => {
+			const env: Env = { ...on, KIOSK_PASSWORD: `  ${'a'.repeat(15)}\n` };
+			expect((await get('/', env)).status).toBe(500);
+			expect((await get('/', { ...on, KIOSK_PASSWORD: `${'a'.repeat(16)}\n` }, basic('kiosk', 'a'.repeat(16)))).status).toBe(200);
+		});
+
+		it('still answers an OPTIONS preflight', async () => {
+			const response = await call('/api/employees', { env: short, method: 'OPTIONS', key: null });
+			expect(response.status).toBe(204);
+		});
+	});
+
+	it('keeps asset protection configured in wrangler.toml', () => {
+		const toml = wranglerToml.replace(/^\s*#.*$/gm, '');
+		const assets = /^\[assets\]\s*$([\s\S]*?)(?=^\[|(?![\s\S]))/m.exec(toml)?.[1] ?? '';
+
+		expect(assets).toMatch(/^\s*run_worker_first\s*=\s*true\s*$/m);
+		expect(assets).toMatch(/^\s*binding\s*=\s*"ASSETS"\s*$/m);
 	});
 });

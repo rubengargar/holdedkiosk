@@ -83,6 +83,8 @@ Opcional y desactivada por defecto. Con ella, el Worker pide autenticación HTTP
 
 Para activarla, define el secreto `KIOSK_PASSWORD`. Un valor vacío o ausente la deja desactivada.
 
+La contraseña debe tener al menos 16 caracteres y ser aleatoria. Genera una con `openssl rand -base64 24`. El Worker recorta los espacios y saltos de línea de los extremos antes de usarla, así que un salto de línea pegado al final del secreto no forma parte de la contraseña (en Fully Kiosk escribe la contraseña sin él). Un valor vacío o solo de espacios la deja desactivada. Si defines una contraseña de menos de 16 caracteres tras recortarla, el Worker falla cerrado: toda petición, salvo el preflight `OPTIONS`, recibe un 500 con `KIOSK_PASSWORD must be at least 16 characters` y no se sirve nada.
+
 ```bash
 npx wrangler secret put KIOSK_PASSWORD
 ```
@@ -93,7 +95,7 @@ Después, introduce el usuario y la contraseña en Fully Kiosk (ver [Montar la t
 
 Qué protege. Impide que use el Worker quien solo conoce la URL o ha copiado un token sellado: sin la contraseña no se sirve la página ni se llama a Holded. El Worker responde 429 a quien supere el límite de peticiones por IP antes de mirar las credenciales, y compara usuario y contraseña en tiempo constante.
 
-Qué no protege. Las credenciales quedan guardadas en el navegador kiosko de la tablet, así que quien controle del todo la tablet puede extraerlas. No es un PIN por empleado. Basic permite adivinar la contraseña por internet y solo lo frena el límite por IP, por eso usa una contraseña larga y aleatoria.
+Qué no protege. Las credenciales quedan guardadas en el navegador kiosko de la tablet, así que quien controle del todo la tablet puede extraerlas. No es un PIN por empleado. Basic permite adivinar la contraseña por internet y la única protección real es la fuerza de la contraseña. El límite por IP solo frena a un cliente descuidado: es aproximado, por ubicación, cuenta por IP completa (un rango IPv6 /64 da claves ilimitadas) y falla abierto. Sin el binding `RATE_LIMITER` no hay ningún límite.
 
 Solo para la instalación de un único Worker. Con el frontend en Cloudflare Pages y el Worker aparte (`ALLOWED_ORIGINS`), la contraseña del Worker no protege la página y las llamadas entre orígenes no llevan las credenciales: no lo combines. Si lo haces, el kiosko mostrará el aviso de contraseña del kiosko.
 
@@ -107,7 +109,7 @@ Como el Worker se ejecuta para cada petición, los archivos del frontend tambié
 
 Qué arregla esto: copiar el token de la tablet ya no da acceso directo a Holded. Con `team:employees.read`, antes se podían leer IBAN, número de la Seguridad Social y salario de cada empleado. Ahora, desde la tablet, solo se alcanza lo que el Worker expone: `id` y nombre de los empleados, nombre y logo de la empresa y las acciones de fichaje. El sellado no deshace lo ya ocurrido: una clave que estuvo en claro en la tablet sigue comprometida hasta que se revoca.
 
-**Límite de peticiones.** El Worker aplica unas 120 peticiones por minuto por IP en `/api/*`, y en toda la página si activas la contraseña del kiosko, y responde 429 al superarlo. Es un límite aproximado, el de la función de rate limiting de Cloudflare.
+**Límite de peticiones.** El Worker aplica unas 120 peticiones por minuto por IP en `/api/*`, y en toda la página si activas la contraseña del kiosko, y responde 429 al superarlo. Es un límite aproximado, el de la función de rate limiting de Cloudflare. No sustituye a una contraseña fuerte.
 
 **Cabeceras.** El frontend se sirve con una Content-Security-Policy restrictiva (`script-src 'self'`, `frame-ancestors 'none'`, imágenes de `self`, `data:` y cualquier origen `https:`, porque el logo puede venir de otro host y las imágenes no ejecutan código), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` y una Permissions-Policy que desactiva cámara, micrófono y geolocalización. Esa política, la del archivo `_headers`, cubre el frontend. Las respuestas de `/api` llevan `X-Content-Type-Options: nosniff` y `Cache-Control: no-store`, que añade el Worker.
 
@@ -166,7 +168,7 @@ Comprobaciones, desde la raíz: `npm run typecheck`, `npm test` y `npm run build
 | `HOLDED_API_BASE` | Variable del Worker | `https://api.holded.com` | URL base de la API de Holded. Solo se cambia para apuntar al mock |
 | `VITE_WORKER_BASE` | Variable de compilación del frontend | Vacío (mismo origen) | URL del Worker cuando el frontend se aloja aparte. Fija además el `connect-src` de la CSP a ese origen |
 | `KIOSK_KEYS` | Binding KV en `wrangler.toml` | Se crea al desplegar | Namespace donde el Worker guarda la clave de sellado. Se declara sin `id`: el botón de despliegue y `wrangler deploy` lo crean y los despliegues siguientes lo reutilizan. Sin él, `/api/seal` responde 503: las empresas con claves sin sellar siguen funcionando, pero no se pueden añadir empresas ni cambiar tokens. En `wrangler dev` y en los tests es un KV local |
-| `KIOSK_PASSWORD` | Secreto del Worker (`npx wrangler secret put KIOSK_PASSWORD`) o `.dev.vars` | Sin definir | Activa la autenticación HTTP Basic en todo el kiosko. Vacío o ausente, está desactivada. Solo para la instalación de un único Worker |
+| `KIOSK_PASSWORD` | Secreto del Worker (`npx wrangler secret put KIOSK_PASSWORD`) o `.dev.vars` | Sin definir | Activa la autenticación HTTP Basic en todo el kiosko. Mínimo 16 caracteres tras recortar espacios (`openssl rand -base64 24`); si es más corta, el Worker responde 500 a todo. Vacío, solo espacios o ausente, está desactivada. Solo para la instalación de un único Worker |
 | `KIOSK_USER` | Variable del Worker | `kiosk` | Usuario que acepta la autenticación cuando `KIOSK_PASSWORD` está definida |
 | `[[ratelimits]]` | `wrangler.toml` | `limit = 120`, `period = 60` | Peticiones permitidas por IP en el periodo, en segundos, con el binding `RATE_LIMITER` |
 
