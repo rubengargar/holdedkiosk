@@ -94,6 +94,65 @@ describe('GET /api/employees', () => {
 	});
 });
 
+describe('GET /api/account', () => {
+	const account = (extra: Record<string, unknown> = {}) => ({
+		id: 'acc1',
+		name: 'Razon Social SL',
+		trade_name: '',
+		website: 'https://acme.test',
+		tax_id: 'B12345678',
+		logo: '/box/account/abc?p=abc',
+		...extra,
+	});
+
+	const info = async (body: Record<string, unknown>) => {
+		stubUpstream(() => jsonResponse(body));
+		return call('/api/account');
+	};
+
+	it('prefers trade_name and falls back to name when it is empty', async () => {
+		expect(await (await info(account({ trade_name: 'Acme' }))).json()).toMatchObject({ name: 'Acme' });
+		expect(await (await info(account({ trade_name: '' }))).json()).toMatchObject({ name: 'Razon Social SL' });
+		expect(await (await info(account({ trade_name: null }))).json()).toMatchObject({ name: 'Razon Social SL' });
+	});
+
+	it.each([
+		['/box/account/abc?p=abc', 'https://app.holded.com/box/account/abc?p=abc'],
+		['https://cdn.test/logo.png', 'https://cdn.test/logo.png'],
+		['http://cdn.test/logo.png', null],
+		['data:image/png;base64,AAAA', null],
+		['javascript:alert(1)', null],
+		['', null],
+		[undefined, null],
+	])('maps logo %s to %s', async (logo, expected) => {
+		const response = await info(account({ logo }));
+
+		expect(await response.json()).toMatchObject({ logoUrl: expected });
+	});
+
+	it('returns only name and logoUrl and authenticates with the caller key', async () => {
+		const response = await info(account({ trade_name: 'Acme' }));
+
+		expect(Object.keys((await response.json()) as object).sort()).toEqual(['logoUrl', 'name']);
+		expect(upstreamCalls).toHaveLength(1);
+		expect(upstreamCalls[0].url.pathname).toBe('/api/v2/account');
+		expect(new Headers(upstreamCalls[0].init.headers).get('authorization')).toBe('Bearer key-1');
+	});
+
+	it('passes a 403 for a missing scope through with its detail', async () => {
+		stubUpstream(() => jsonResponse({ status: 403, detail: 'Missing scope account:info.read' }, 403));
+
+		const response = await call('/api/account');
+
+		expect(response.status).toBe(403);
+		expect(await response.json()).toMatchObject({ detail: 'Missing scope account:info.read' });
+	});
+
+	it('answers 502 when upstream returns an unknown shape', async () => {
+		expect((await info({ trade_name: 'Acme' })).status).toBe(502);
+	});
+});
+
 describe('GET /api/times', () => {
 	it('makes one upstream call when the first page already reaches before since', async () => {
 		stubUpstream(() => page([entry(ID, SINCE + 2 * HOUR, null), entry(ID, SINCE - HOUR, SINCE - HOUR / 2)], 'next'));

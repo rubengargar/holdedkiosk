@@ -5,7 +5,6 @@ import AddAccountForm from './AddAccountForm.vue'
 import ChangeTokenForm from './ChangeTokenForm.vue'
 import { avatarColors, getInitials } from './avatar'
 import { formatHHMM, trackedMs } from './board'
-import { downscaleLogo } from './logo'
 import { useKiosk } from './kiosk'
 
 const {
@@ -18,7 +17,7 @@ const {
   addAccount,
   changeToken,
   renameAccount,
-  setLogo,
+  refreshInfo,
   deleteAccount,
   setActive,
   toggleHidden,
@@ -31,7 +30,7 @@ const kioskTitle = ref(localStorage.getItem('kiosk_title') || 'Portal de fichado
 const searchTerm = ref('')
 const showSettingsPanel = ref(false)
 const confirmingDelete = ref(false)
-const logoError = ref('')
+const infoStatus = ref<'idle' | 'busy' | 'failed'>('idle')
 
 const greeting = computed(() => (new Date(now.value).getHours() < 12 ? 'Buenos días' : 'Buenas tardes'))
 
@@ -77,17 +76,9 @@ function onRename(id: string, event: Event) {
   input.value = accounts.value.find(a => a.id === id)?.name ?? ''
 }
 
-async function onLogoPicked(id: string, event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = ''
-  if (!file) return
-  logoError.value = ''
-  try {
-    setLogo(id, await downscaleLogo(file))
-  } catch {
-    logoError.value = 'No se pudo leer la imagen. Prueba con otro archivo.'
-  }
+async function onRefreshInfo(id: string) {
+  infoStatus.value = 'busy'
+  infoStatus.value = (await refreshInfo(id)) ? 'idle' : 'failed'
 }
 
 function confirmDelete(id: string) {
@@ -99,7 +90,7 @@ function confirmDelete(id: string) {
 watch(activeId, () => {
   searchTerm.value = ''
   confirmingDelete.value = false
-  logoError.value = ''
+  infoStatus.value = 'idle'
 })
 </script>
 
@@ -133,28 +124,17 @@ watch(activeId, () => {
           @change="onRename(activeAccount.id, $event)"
         />
 
-        <p class="text-sm font-medium text-gray-700 mt-4 mb-1">Logo</p>
-        <div class="flex gap-2">
-          <label class="min-h-10 px-3 py-2 flex items-center text-sm rounded bg-gray-200 hover:bg-gray-300 text-gray-800 cursor-pointer focus-within:ring-2 focus-within:ring-blue-600">
-            {{ activeAccount.logo ? 'Cambiar logo' : 'Subir logo' }}
-            <input
-              type="file"
-              accept="image/*"
-              class="sr-only"
-              aria-label="Elegir imagen de logo"
-              @change="onLogoPicked(activeAccount.id, $event)"
-            />
-          </label>
-          <button
-            v-if="activeAccount.logo"
-            type="button"
-            class="min-h-10 px-3 py-2 text-sm rounded bg-gray-200 hover:bg-gray-300 text-gray-800"
-            @click="setLogo(activeAccount.id, undefined)"
-          >
-            Quitar logo
-          </button>
-        </div>
-        <p v-if="logoError" class="text-red-600 mt-2 text-sm" role="alert">{{ logoError }}</p>
+        <button
+          type="button"
+          class="mt-4 min-h-10 px-3 py-2 text-sm rounded bg-gray-200 hover:bg-gray-300 text-gray-800 disabled:opacity-60"
+          :disabled="infoStatus === 'busy'"
+          @click="onRefreshInfo(activeAccount.id)"
+        >
+          {{ infoStatus === 'busy' ? 'Actualizando...' : 'Actualizar datos de Holded' }}
+        </button>
+        <p v-if="infoStatus === 'failed'" class="text-red-600 mt-2 text-sm" role="alert">
+          No se pudieron obtener los datos. Comprueba que el token tenga el permiso account:info.read.
+        </p>
 
         <p class="text-sm font-medium text-gray-700 mt-4 -mb-1">Token</p>
         <ChangeTokenForm :account-name="activeAccount.name" :submit="token => changeToken(activeAccount!.id, token)" />

@@ -11,8 +11,10 @@ import { applyClock, buildStatuses, dayStart, isStaleTimes, mergePaused, prunePa
 import {
   clock as clockRequest,
   describeError,
+  getAccountInfo,
   getEmployees,
   getTimes,
+  type AccountInfo,
   type ClockAction,
   type Employee,
   type TimeEntry
@@ -37,6 +39,7 @@ const POLL_MS = 2 * 60_000
 const EMPLOYEES_TTL_MS = 15 * 60_000
 const TIMES_STALE_MS = 30_000
 const TICK_MS = 60_000
+const AUTO_NAME = /^Empresa \d+$/
 
 function emptyState(): AccountState {
   return {
@@ -57,12 +60,21 @@ function sortByName(employees: Employee[]): Employee[] {
   return [...employees].sort((a, b) => a.name.localeCompare(b.name))
 }
 
+async function fetchAccountInfo(token: string): Promise<AccountInfo | null> {
+  try {
+    return await getAccountInfo(token)
+  } catch {
+    return null
+  }
+}
+
 export function useKiosk() {
   const accounts = ref<Account[]>(loadAccounts(localStorage))
   const activeId = ref<string | null>(loadActiveAccountId(localStorage, accounts.value))
   const states = reactive<Record<string, AccountState>>({})
   for (const account of accounts.value) states[account.id] = emptyState()
   const now = ref(Date.now())
+  const infoRequested = new Set<string>()
 
   const activeAccount = computed(() => accounts.value.find(a => a.id === activeId.value) ?? null)
   const activeState = computed<AccountState | null>(() => (activeId.value ? states[activeId.value] ?? null : null))
@@ -100,6 +112,8 @@ export function useKiosk() {
       mode === 'manual' || state.timesFetchedAt == null || at - state.timesFetchedAt > TIMES_STALE_MS
     if (!needEmployees && !needTimes) return
 
+    if (mode !== 'poll' && account.logo === undefined) void refreshInfo(id)
+
     state.loading = true
     state.error = ''
 
@@ -120,9 +134,42 @@ export function useKiosk() {
     if (activeId.value) void sync(activeId.value, mode)
   }
 
+  function applyInfo(id: string, info: AccountInfo | null) {
+    accounts.value = accounts.value.map(a => {
+      if (a.id !== id) return a
+      const name = info?.name.trim()
+      return {
+        ...a,
+        logo: info ? info.logoUrl : (a.logo ?? null),
+        name: name && AUTO_NAME.test(a.name) ? name : a.name
+      }
+    })
+  }
+
+  async function refreshInfo(id: string): Promise<boolean> {
+    const account = accounts.value.find(a => a.id === id)
+    if (!account || infoRequested.has(id)) return false
+    infoRequested.add(id)
+    try {
+      const info = await fetchAccountInfo(account.token)
+      applyInfo(id, info)
+      return info !== null
+    } finally {
+      infoRequested.delete(id)
+    }
+  }
+
   async function addAccount(name: string, token: string) {
     const employees = await getEmployees(token)
-    const account: Account = { id: newAccountId(), name, token, hiddenEmployeeIds: [] }
+    const info = await fetchAccountInfo(token)
+    const holdedName = info?.name.trim()
+    const account: Account = {
+      id: newAccountId(),
+      name: name.trim() || holdedName || `Empresa ${accounts.value.length + 1}`,
+      token,
+      hiddenEmployeeIds: [],
+      logo: info ? info.logoUrl : null
+    }
     states[account.id] = {
       ...emptyState(),
       employees: sortByName(employees),
@@ -135,7 +182,9 @@ export function useKiosk() {
   async function changeToken(id: string, token: string) {
     const trimmed = token.trim()
     const employees = await getEmployees(trimmed)
+    const info = await fetchAccountInfo(trimmed)
     accounts.value = accounts.value.map(a => (a.id === id ? { ...a, token: trimmed } : a))
+    applyInfo(id, info)
     const state = states[id]
     if (state) {
       state.employees = sortByName(employees)
@@ -148,14 +197,6 @@ export function useKiosk() {
     const trimmed = name.trim()
     if (!trimmed) return
     accounts.value = accounts.value.map(a => (a.id === id ? { ...a, name: trimmed } : a))
-  }
-
-  function setLogo(id: string, logo: string | undefined) {
-    accounts.value = accounts.value.map(a => {
-      if (a.id !== id) return a
-      const { logo: _previous, ...rest } = a
-      return logo ? { ...rest, logo } : rest
-    })
   }
 
   function deleteAccount(id: string) {
@@ -259,7 +300,7 @@ export function useKiosk() {
     addAccount,
     changeToken,
     renameAccount,
-    setLogo,
+    refreshInfo,
     deleteAccount,
     setActive,
     toggleHidden,

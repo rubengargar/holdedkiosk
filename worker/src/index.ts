@@ -1,5 +1,5 @@
 import type { Env } from './env';
-import { HoldedError, clock, type ClockAction, listActiveEmployees, listEntriesSince } from './holded';
+import { HoldedError, clock, type ClockAction, getAccountInfo, listActiveEmployees, listEntriesSince } from './holded';
 
 class HttpError extends Error {
 	constructor(
@@ -38,6 +38,7 @@ const clockRoute = (action: ClockAction): Route => ({
 });
 
 const routes: Route[] = [
+	{ method: 'GET', pattern: /^\/api\/account$/, handler: ({ env, key }) => getAccountInfo(env, key) },
 	{ method: 'GET', pattern: /^\/api\/employees$/, handler: ({ env, key }) => listActiveEmployees(env, key) },
 	{
 		method: 'GET',

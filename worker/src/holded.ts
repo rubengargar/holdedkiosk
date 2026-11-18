@@ -12,6 +12,11 @@ export interface TimeEntry {
 	paused: boolean;
 }
 
+export interface AccountInfo {
+	name: string;
+	logoUrl: string | null;
+}
+
 export class HoldedError extends Error {
 	constructor(
 		readonly status: number,
@@ -23,6 +28,7 @@ export class HoldedError extends Error {
 }
 
 const DEFAULT_BASE = 'https://api.holded.com';
+const LOGO_HOST = 'https://app.holded.com';
 const PAGE_SIZE = 200;
 const MAX_TIME_PAGES = 5;
 const MAX_EMPLOYEE_PAGES = 25;
@@ -92,6 +98,20 @@ function parseEntry(item: unknown): TimeEntry {
 		end: item.end_at == null ? null : parseInstant(item.end_at),
 		paused: item.end_at == null && isPaused(item.status),
 	};
+}
+
+function toLogoUrl(logo: unknown): string | null {
+	if (typeof logo !== 'string') return null;
+	// Holded returns a path; serving it from app.holded.com is observed, undocumented behaviour.
+	if (logo.startsWith('/')) return `${LOGO_HOST}${logo}`;
+	return logo.startsWith('https://') ? logo : null;
+}
+
+export async function getAccountInfo(env: Env, key: string): Promise<AccountInfo> {
+	const body = await call(env, key, '/api/v2/account');
+	if (!isRecord(body) || typeof body.name !== 'string') throw unexpected();
+	const tradeName = typeof body.trade_name === 'string' ? body.trade_name.trim() : '';
+	return { name: tradeName || body.name, logoUrl: toLogoUrl(body.logo) };
 }
 
 export async function listActiveEmployees(env: Env, key: string): Promise<Employee[]> {

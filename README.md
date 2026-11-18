@@ -15,8 +15,8 @@ The worker does not store tokens. The browser sends the token of the active comp
 ## Features
 
 *   Several Holded companies on one kiosk. Round avatars at the top left of the header switch between them with one tap, even with a single company. Each company keeps its own employee list, hidden employees, logo and loaded data.
-*   Per-company logo. Pick an image in the settings panel; it is downscaled in the browser to fit 128x128 and stored in `localStorage` as a small data URL. Without a logo the avatar shows the company's initials on a colour derived from its id. "Quitar logo" removes it. No network call is involved.
-*   Per-company settings. The settings panel shows only the active company: rename, logo, token, hide/show employees and delete. Switch to another company to edit it. A separate "Kiosko" section holds the kiosk title and "Añadir empresa".
+*   Automatic company name and logo. The worker reads them from Holded (`GET /api/account`) and returns only `name` (the trade name when set) and `logoUrl`. The logo is shown in the avatar and is never uploaded by hand. Without the optional `account:info.read` scope, or when Holded has no logo or the image fails to load, the avatar shows the company's initials on a colour derived from its id. The name field when adding a company is optional: a name you type always wins, an empty one takes the Holded name, and "Empresa N" is the fallback. The logo URL is built from a path that Holded returns, on `app.holded.com`. That host is observed behaviour, not documented.
+*   Per-company settings. The settings panel shows only the active company: rename, "Actualizar datos de Holded", token, hide/show employees and delete. Switch to another company to edit it. A separate "Kiosko" section holds the kiosk title and "Añadir empresa".
 *   Lists employees with an active contract and no termination date.
 *   Hide employees, per company.
 *   Change the Holded token of a company from the settings panel. The new token is validated with one employee request before it replaces the old one, and the hidden employees are kept.
@@ -32,6 +32,7 @@ Holded allows 100 requests per minute per API key. The kiosk keeps well under th
 
 *   The employee list is fetched when a company is added (this also validates the token), on first view after page load, when it is older than 15 minutes at poll time, and on the "Actualizar" button. It is not fetched on every poll.
 *   Times are fetched with one request that returns all employees' entries for the day. The kiosk polls every 2 minutes, only for the active company and only while the page is visible. Switching company, returning to the page and polling refresh times only when they are older than 30 seconds.
+*   The company name and logo are requested once when a company is added, once when its token is changed, once the first time an existing company without them is synced, and when you press "Actualizar datos de Holded" in its settings. Never on polls. A failure (for example a missing scope) never blocks adding the company, and it is not retried. The button refreshes the logo, and the name only while it is still an automatic "Empresa N".
 *   Clocking in, out, pausing or resuming sends one request and no follow-up reads. The local state is updated from the result and the next poll reconciles it.
 *   The tracked time shown on each row is computed in the browser once a minute.
 *   On a 429 response the kiosk shows a message and keeps the data already on screen.
@@ -48,6 +49,7 @@ Holded allows 100 requests per minute per API key. The kiosk keeps well under th
     *   `team:employees.read`
     *   `team:time-tracking.read`
     *   `team:time-tracking.write`
+    *   `account:info.read` (optional): company name and logo. Without it the company shows its initials.
 
 ## Setup and deployment
 

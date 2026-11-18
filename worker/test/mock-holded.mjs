@@ -58,7 +58,21 @@ function paginate(items, url) {
 	return { items: items.slice(offset, end), has_more: end < items.length, cursor: end < items.length ? String(end) : null };
 }
 
-function route(req, res, url, state) {
+function account(key) {
+	const h = hash(key);
+	return {
+		id: `acc-${h}`,
+		name: `Razon Social ${key} SL`,
+		trade_name: h % 2 === 0 ? `Comercial ${key}` : '',
+		website: `https://${key}.example`,
+		logo: `/box/account/${h.toString(16)}?p=${h.toString(16)}`,
+		tax_id: `B${h}`,
+	};
+}
+
+function route(req, res, url, state, key) {
+	if (req.method === 'GET' && url.pathname === '/api/v2/account') return send(res, 200, account(key));
+
 	const clockMatch = /^\/api\/v2\/employees\/([^/]+)\/(clock-in|clock-out|pause|unpause)$/.exec(url.pathname);
 
 	if (req.method === 'GET' && url.pathname === '/api/v2/employees') return send(res, 200, paginate(state.employees, url));
@@ -103,7 +117,7 @@ const server = createServer((req, res) => {
 
 	const match = /^Bearer (key-.+)$/.exec(req.headers.authorization ?? '');
 	if (!match) return problem(res, 401, 'Unauthorized', 'Invalid API key');
-	route(req, res, url, company(match[1]));
+	route(req, res, url, company(match[1]), match[1]);
 });
 
 const port = Number(process.argv[2]) || 8788;

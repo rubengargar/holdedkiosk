@@ -2,7 +2,7 @@
 import { mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h } from 'vue'
-import type { Employee, TimeEntry } from './api'
+import type { AccountInfo, Employee, TimeEntry } from './api'
 
 type Kiosk = ReturnType<typeof import('./kiosk').useKiosk>
 
@@ -28,6 +28,8 @@ interface World {
   times: () => TimeEntry[] | Promise<TimeEntry[]>
   badTokens: Set<string>
   failingActions: Set<string>
+  info: AccountInfo
+  infoStatus: number
 }
 
 let world: World
@@ -45,6 +47,9 @@ async function fakeFetch(input: string, init: RequestInit = {}): Promise<Respons
   requests.push({ method, path: url.pathname, token })
 
   if (world.badTokens.has(token)) return reply({ error: 'Holded request failed', detail: 'Unauthorized' }, 401)
+  if (url.pathname === '/api/account') {
+    return world.infoStatus === 200 ? reply(world.info) : reply({ error: 'Holded request failed', detail: 'Forbidden' }, world.infoStatus)
+  }
   if (method === 'POST') {
     const action = url.pathname.split('/').pop() ?? ''
     if (world.failingActions.has(action)) return reply({ error: 'Holded request failed', detail: 'Conflict' }, 400)
@@ -72,7 +77,13 @@ function setVisibility(value: 'visible' | 'hidden') {
 }
 
 function seedAccounts(...ids: string[]) {
-  const accounts = ids.map(id => ({ id, name: `Empresa ${id}`, token: `token-${id}`, hiddenEmployeeIds: ['hidden'] }))
+  const accounts = ids.map(id => ({
+    id,
+    name: `Empresa ${id}`,
+    token: `token-${id}`,
+    hiddenEmployeeIds: ['hidden'],
+    logo: null
+  }))
   localStorage.setItem('kiosk_accounts', JSON.stringify(accounts))
 }
 
@@ -102,7 +113,9 @@ beforeEach(async () => {
     employees: [BEA, ANA],
     times: () => [],
     badTokens: new Set(),
-    failingActions: new Set()
+    failingActions: new Set(),
+    info: { name: 'Acme Holded', logoUrl: 'https://app.holded.com/box/account/abc' },
+    infoStatus: 200
   }
   requests = []
   mounted = []
@@ -319,7 +332,10 @@ describe('accounts', () => {
 
     await kiosk.changeToken('a', ' token-new ')
 
-    expect(requests).toEqual([{ method: 'GET', path: '/api/employees', token: 'token-new' }])
+    expect(requests).toEqual([
+      { method: 'GET', path: '/api/employees', token: 'token-new' },
+      { method: 'GET', path: '/api/account', token: 'token-new' }
+    ])
     expect(kiosk.accounts.value[0]).toMatchObject({ token: 'token-new', hiddenEmployeeIds: ['hidden'] })
     expect(kiosk.activeState.value?.employees).toEqual([ANA])
   })
@@ -336,17 +352,6 @@ describe('accounts', () => {
     expect(take()).toEqual(['GET /api/employees'])
   })
 
-  it('sets and removes the logo of one account only', async () => {
-    seedAccounts('a', 'b')
-    const kiosk = await mountKiosk()
-
-    kiosk.setLogo('b', 'data:image/png;base64,AAAA')
-    expect(kiosk.accounts.value.map(a => a.logo)).toEqual([undefined, 'data:image/png;base64,AAAA'])
-
-    kiosk.setLogo('b', undefined)
-    expect('logo' in kiosk.accounts.value[1]).toBe(false)
-  })
-
   it('switches to the next account when the active one is deleted', async () => {
     seedAccounts('a', 'b', 'c')
     const kiosk = await mountKiosk()
@@ -360,5 +365,166 @@ describe('accounts', () => {
 
     kiosk.deleteAccount('a')
     expect(kiosk.activeId.value).toBeNull()
+  })
+})
+
+describe('company data from Holded', () => {
+  const infoCalls = () => requests.filter(r => r.path === '/api/account')
+
+  function seedLegacyAccount(name = 'Empresa 1') {
+    localStorage.setItem(
+      'kiosk_accounts',
+      JSON.stringify([{ id: 'a', name, token: 'token-a', hiddenEmployeeIds: [] }])
+    )
+  }
+
+  it('asks once when an account is added and stores the logo and the name', async () => {
+    const kiosk = await mountKiosk()
+    take()
+
+    await kiosk.addAccount('', 'token-new')
+    await settle()
+
+    expect(infoCalls()).toHaveLength(1)
+    expect(kiosk.accounts.value[1]).toMatchObject({
+      name: 'Acme Holded',
+      logo: 'https://app.holded.com/box/account/abc'
+    })
+  })
+
+  it('still adds the account with logo null when the call fails', async () => {
+    const kiosk = await mountKiosk()
+    world.infoStatus = 403
+
+    await kiosk.addAccount('', 'token-new')
+    await settle()
+
+    expect(kiosk.accounts.value).toHaveLength(2)
+    expect(kiosk.accounts.value[1]).toMatchObject({ name: 'Empresa 2', logo: null })
+    expect(kiosk.activeId.value).toBe(kiosk.accounts.value[1].id)
+  })
+
+  it('keeps a typed name over the Holded name', async () => {
+    const kiosk = await mountKiosk()
+
+    await kiosk.addAccount('  Mi empresa ', 'token-new')
+
+    expect(kiosk.accounts.value[1].name).toBe('Mi empresa')
+  })
+
+  it('stores null when Holded has no logo, and does not ask again', async () => {
+    const kiosk = await mountKiosk()
+    world.info = { name: 'Acme Holded', logoUrl: null }
+    await kiosk.addAccount('', 'token-new')
+    take()
+
+    kiosk.setActive('a')
+    kiosk.setActive(kiosk.accounts.value[1].id)
+    await settle()
+
+    expect(kiosk.accounts.value[1].logo).toBeNull()
+    expect(infoCalls()).toHaveLength(0)
+  })
+
+  it('asks once when the token is changed', async () => {
+    const kiosk = await mountKiosk()
+    take()
+
+    await kiosk.changeToken('a', 'token-new')
+
+    expect(infoCalls()).toEqual([{ method: 'GET', path: '/api/account', token: 'token-new' }])
+    expect(kiosk.accounts.value[0].logo).toBe('https://app.holded.com/box/account/abc')
+  })
+
+  it('keeps the logo when the call fails on a token change', async () => {
+    seedAccounts('a')
+    const stored = JSON.parse(localStorage.getItem('kiosk_accounts') ?? '[]')
+    stored[0].logo = 'https://app.holded.com/old'
+    localStorage.setItem('kiosk_accounts', JSON.stringify(stored))
+    const kiosk = await mountKiosk()
+    world.infoStatus = 403
+
+    await kiosk.changeToken('a', 'token-new')
+
+    expect(kiosk.accounts.value[0]).toMatchObject({ token: 'token-new', logo: 'https://app.holded.com/old' })
+  })
+
+  it('asks lazily once for an account whose logo was never requested, and never on polls', async () => {
+    seedLegacyAccount()
+
+    const kiosk = await mountKiosk()
+    expect(infoCalls()).toHaveLength(1)
+    expect(kiosk.accounts.value[0].logo).toBe('https://app.holded.com/box/account/abc')
+
+    take()
+    await vi.advanceTimersByTimeAsync(2 * 60_000)
+    await vi.advanceTimersByTimeAsync(2 * 60_000)
+    expect(take()).not.toContain('GET /api/account')
+  })
+
+  it('does not ask again after a failed lazy call', async () => {
+    seedLegacyAccount()
+    world.infoStatus = 403
+
+    const kiosk = await mountKiosk()
+    await vi.advanceTimersByTimeAsync(2 * 60_000)
+    setVisibility('hidden')
+    setVisibility('visible')
+    await settle()
+
+    expect(infoCalls()).toHaveLength(1)
+    expect(kiosk.accounts.value[0].logo).toBeNull()
+  })
+
+  it('does not ask for an account that already has a logo or null', async () => {
+    await mountKiosk()
+
+    expect(infoCalls()).toHaveLength(0)
+  })
+
+  it('renames an auto-generated name on lazy load but never a typed one', async () => {
+    seedLegacyAccount('Empresa 1')
+    const auto = await mountKiosk()
+    expect(auto.accounts.value[0].name).toBe('Acme Holded')
+
+    mounted.forEach(wrapper => wrapper.unmount())
+    seedLegacyAccount('Panadería Ruiz')
+    const typed = await mountKiosk()
+    expect(typed.accounts.value[0].name).toBe('Panadería Ruiz')
+  })
+
+  it('refreshes only the logo from the settings button when the name was typed', async () => {
+    const kiosk = await mountKiosk()
+    kiosk.renameAccount('a', 'Panadería Ruiz')
+    take()
+
+    expect(await kiosk.refreshInfo('a')).toBe(true)
+
+    expect(take()).toEqual(['GET /api/account'])
+    expect(kiosk.accounts.value[0]).toMatchObject({
+      name: 'Panadería Ruiz',
+      logo: 'https://app.holded.com/box/account/abc'
+    })
+  })
+
+  it('refreshes an auto-generated name from the settings button', async () => {
+    seedAccounts('a')
+    localStorage.setItem(
+      'kiosk_accounts',
+      JSON.stringify([{ id: 'a', name: 'Empresa 3', token: 'token-a', hiddenEmployeeIds: [], logo: null }])
+    )
+    const kiosk = await mountKiosk()
+
+    await kiosk.refreshInfo('a')
+
+    expect(kiosk.accounts.value[0].name).toBe('Acme Holded')
+  })
+
+  it('reports a failed refresh and keeps what the account had', async () => {
+    const kiosk = await mountKiosk()
+    world.infoStatus = 403
+
+    expect(await kiosk.refreshInfo('a')).toBe(false)
+    expect(kiosk.accounts.value[0]).toMatchObject({ name: 'Empresa a', logo: null })
   })
 })

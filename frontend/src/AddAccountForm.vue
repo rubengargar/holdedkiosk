@@ -14,17 +14,16 @@ const busy = ref(false)
 const error = ref('')
 
 async function onSubmit() {
-  const trimmedName = name.value.trim()
   const trimmedToken = token.value.trim()
-  if (!trimmedName || !trimmedToken) {
-    error.value = 'Introduce el nombre de la empresa y su token.'
+  if (!trimmedToken) {
+    error.value = 'Introduce el token de Holded.'
     return
   }
 
   busy.value = true
   error.value = ''
   try {
-    await props.submit(trimmedName, trimmedToken)
+    await props.submit(name.value.trim(), trimmedToken)
     name.value = ''
     token.value = ''
   } catch (e) {
@@ -43,6 +42,7 @@ async function onSubmit() {
       v-model="name"
       type="text"
       autocomplete="off"
+      placeholder="Si lo dejas vacío, se toma de Holded"
       class="border p-3 mb-3 w-full rounded-md focus:ring-2 focus:ring-blue-600 focus:border-transparent"
     />
     <label :for="`${idPrefix}-token`" class="block text-sm font-medium text-gray-700 mb-1">Token API de Holded</label>
@@ -61,7 +61,11 @@ async function onSubmit() {
         <li><code class="text-gray-700">team:time-tracking.read</code> — ver fichajes del día</li>
         <li><code class="text-gray-700">team:time-tracking.write</code> — fichar entrada, salida y pausas</li>
       </ul>
-      <p class="mt-1">No hace falta ningún otro permiso.</p>
+      <p class="mt-2 mb-1">Permiso opcional:</p>
+      <ul>
+        <li><code class="text-gray-700">account:info.read</code> — opcional: nombre y logo de la empresa</li>
+      </ul>
+      <p class="mt-1">No hace falta ningún otro permiso. Sin el opcional, la empresa se muestra con sus iniciales.</p>
     </div>
     <button
       type="submit"

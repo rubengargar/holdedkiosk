@@ -82,11 +82,18 @@ describe('storage', () => {
     expect(loadAccounts(store)).toEqual(accounts)
   })
 
-  it('round-trips a logo and loads accounts stored without one', () => {
+  it.each([[undefined], [null], ['https://app.holded.com/box/account/abc'], ['data:image/png;base64,AAAA']])(
+    'round-trips the logo %s',
+    logo => {
+      const store = memoryStore()
+      const account: Account = { id: 'a', name: 'Uno', token: 't1', hiddenEmployeeIds: [], logo }
+      saveAccounts(store, [account])
+      expect(loadAccounts(store)).toEqual([account])
+    }
+  )
+
+  it('loads accounts stored without a logo', () => {
     const store = memoryStore()
-    const withLogo: Account = { id: 'a', name: 'Uno', token: 't1', hiddenEmployeeIds: [], logo: 'data:image/png;base64,AAAA' }
-    saveAccounts(store, [withLogo])
-    expect(loadAccounts(store)).toEqual([withLogo])
 
     store.setItem('kiosk_accounts', JSON.stringify([{ id: 'b', name: 'Dos', token: 't2', hiddenEmployeeIds: [] }]))
     expect(loadAccounts(store)).toEqual([{ id: 'b', name: 'Dos', token: 't2', hiddenEmployeeIds: [] }])

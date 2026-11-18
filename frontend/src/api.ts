@@ -12,6 +12,11 @@ export interface TimeEntry {
   paused: boolean
 }
 
+export interface AccountInfo {
+  name: string
+  logoUrl: string | null
+}
+
 export type ClockAction = 'clock-in' | 'clock-out' | 'pause' | 'unpause'
 
 export class ApiError extends Error {
@@ -54,6 +59,10 @@ async function request<T>(token: string, path: string, method: 'GET' | 'POST' = 
 
 export function getEmployees(token: string): Promise<Employee[]> {
   return request<Employee[]>(token, '/api/employees')
+}
+
+export function getAccountInfo(token: string): Promise<AccountInfo> {
+  return request<AccountInfo>(token, '/api/account')
 }
 
 export function getTimes(token: string, since: number): Promise<TimeEntry[]> {
