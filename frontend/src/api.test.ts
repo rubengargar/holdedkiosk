@@ -18,6 +18,38 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+function stubResponse(res: Response) {
+  vi.stubGlobal('fetch', vi.fn(async () => res))
+}
+
+describe('non-JSON success', () => {
+  it('maps an HTML 200 to an ApiError that names VITE_WORKER_BASE', async () => {
+    stubResponse(new Response('<!doctype html><html></html>', { status: 200, headers: { 'Content-Type': 'text/html' } }))
+    const { getEmployees, ApiError } = await loadApi(undefined)
+
+    const error = await getEmployees('k').catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as Error).message).toContain('VITE_WORKER_BASE')
+    expect((error as Error).message).not.toMatch(/JSON|token/i)
+  })
+})
+
+describe('describeError on 429', () => {
+  it.each([
+    ['Too many requests', 'El kiosko está recibiendo demasiadas peticiones'],
+    ['Holded request failed', 'Holded está limitando las peticiones'],
+    ['Holded request failed: slow down', 'Holded está limitando las peticiones'],
+  ])('describes %j', async (body, expected) => {
+    stubResponse(new Response(JSON.stringify({ error: body.split(':')[0], detail: body.split(': ')[1] }), { status: 429 }))
+    const { getEmployees, describeError } = await loadApi(undefined)
+
+    const error = await getEmployees('k').catch((e: unknown) => e)
+
+    expect(describeError(error)).toContain(expected)
+  })
+})
+
 describe('api base', () => {
   it.each([undefined, '', '  '])('calls the same origin when the base is %j', async (base) => {
     const fetchMock = stubFetch()

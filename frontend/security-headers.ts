@@ -17,7 +17,7 @@ export function contentSecurityPolicy(workerBase: string | undefined): string {
     "default-src 'self'",
     "script-src 'self'",
     "style-src 'self'",
-    "img-src 'self' data: https://app.holded.com",
+    "img-src 'self' data: https:",
     `connect-src ${connect}`,
     "object-src 'none'",
     "base-uri 'self'",

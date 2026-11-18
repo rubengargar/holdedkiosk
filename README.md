@@ -19,7 +19,7 @@ Un kiosko de fichaje para tablet que usa Holded: cada persona toca su nombre par
 
 ## Despliegue en tres pasos
 
-1.  **Pulsa el botón "Deploy to Cloudflare".** Clona este repositorio en tu GitHub y despliega un Worker en tu cuenta de Cloudflare. Nada pasa por el Worker ni por el dominio del autor.
+1.  **Pulsa el botón "Deploy to Cloudflare".** Clona este repositorio en tu GitHub y despliega un Worker en tu cuenta de Cloudflare. Nada pasa por la infraestructura del autor.
 2.  **Crea una clave de API en Holded** con los permisos de la tabla.
 3.  **Abre la URL del Worker en la tablet**, pulsa el engranaje y añade la empresa con esa clave. El kiosko la valida cargando la lista de empleados.
 
@@ -61,7 +61,7 @@ Holded permite 100 peticiones por minuto por clave. El kiosko se queda muy por d
 
 **Límite de peticiones.** El Worker aplica unas 120 peticiones por minuto por IP en `/api/*` y responde 429 al superarlo. Es un límite aproximado, el de la función de rate limiting de Cloudflare.
 
-**Cabeceras.** El frontend se sirve con una Content-Security-Policy restrictiva (`script-src 'self'`, `frame-ancestors 'none'`, imágenes solo de `self` y `app.holded.com`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` y una Permissions-Policy que desactiva cámara, micrófono y geolocalización. Las respuestas de la API llevan `Cache-Control: no-store`.
+**Cabeceras.** El frontend se sirve con una Content-Security-Policy restrictiva (`script-src 'self'`, `frame-ancestors 'none'`, imágenes de `self`, `data:` y cualquier origen `https:`, porque el logo puede venir de otro host y las imágenes no ejecutan código), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` y una Permissions-Policy que desactiva cámara, micrófono y geolocalización. Esa política, la del archivo `_headers`, cubre el frontend. Las respuestas de `/api` llevan `X-Content-Type-Options: nosniff` y `Cache-Control: no-store`, que añade el Worker.
 
 **Límites que debes conocer.**
 
@@ -118,13 +118,18 @@ npx wrangler deploy --name holded-proxy-worker \
   --var "ALLOWED_ORIGINS:https://holdedkiosk.pages.dev,http://localhost:5173"
 ```
 
-Ejecútalo después de `npm run build`. Si el Worker se compila con Workers Builds, pon esa línea como comando de despliegue. Pages conserva su configuración: directorio raíz `frontend`, comando de compilación `npm run build`, salida `dist` y `VITE_WORKER_BASE` con la URL del Worker.
+Ejecútalo después de `npm run build`. Con Workers Builds, el comando de compilación es `npm run build` y el comando de despliegue es la línea `npx wrangler deploy --name holded-proxy-worker --var "ALLOWED_ORIGINS:..."` de arriba, con tus orígenes. Un despliegue sin el paso de compilación falla, porque `frontend/dist` no está en git.
+
+**Aviso.** Si Cloudflare abre un pull request automático que renombra el Worker en `wrangler.toml` a `holded-proxy-worker`, ciérralo sin fusionar. La configuración del repositorio debe seguir neutra para quien use el botón de despliegue.
+
+Pages conserva su configuración: directorio raíz `frontend`, comando de compilación `npm run build`, salida `dist` y `VITE_WORKER_BASE` con la URL del Worker.
 
 Despliegue desde un clon, sin el botón: `npm install`, `npx wrangler login` y `npm run deploy`.
 
 ## Limitaciones conocidas
 
 *   El estado "en pausa" que devuelve Holded no está documentado en la especificación de la API v2, que solo lista `running` y `done`. El Worker asume que sigue siendo `paused`, como en la v1.
+*   El binding de rate limiting no se ha confirmado en el plan Free de Cloudflare. Si un despliegue falla en el bloque `[[ratelimits]]`, borra ese bloque de `wrangler.toml`. El Worker funciona sin él, sin límite de peticiones.
 *   El logo se sirve desde `app.holded.com` a partir de una ruta que devuelve Holded. Ese host se ha observado, no está documentado.
 *   El Worker lee como máximo 5 páginas de 200 fichajes por consulta y 25 páginas de empleados. En una empresa muy grande, los fichajes más antiguos de la ventana consultada pueden quedar fuera.
 *   Una jornada que empezó antes de medianoche cuenta en el total de hoy solo las horas desde las 00:00.

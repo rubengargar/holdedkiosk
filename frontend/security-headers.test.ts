@@ -18,7 +18,7 @@ describe('contentSecurityPolicy', () => {
     expect(csp).toContain("script-src 'self';")
     expect(csp).not.toContain('unsafe')
     expect(csp).toContain("frame-ancestors 'none'")
-    expect(csp).toContain('img-src \'self\' data: https://app.holded.com')
+    expect(csp).toContain("img-src 'self' data: https:;")
   })
 })
 
@@ -29,5 +29,6 @@ describe('headersFile', () => {
     for (const name of ['X-Frame-Options: DENY', 'Referrer-Policy: no-referrer', 'X-Content-Type-Options: nosniff', 'Permissions-Policy: camera=(), microphone=(), geolocation=()']) {
       expect(file).toContain(`  ${name}\n`)
     }
+    expect(file).toContain(`  Content-Security-Policy: ${contentSecurityPolicy(undefined)}\n`)
   })
 })

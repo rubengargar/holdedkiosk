@@ -52,7 +52,14 @@ async function request<T>(token: string, path: string, method: 'GET' | 'POST' = 
     throw new ApiError(res.status, message)
   }
 
-  return (await res.json()) as T
+  try {
+    return (await res.json()) as T
+  } catch {
+    throw new ApiError(
+      res.status,
+      'El kiosko no puede contactar con su Worker. Si el frontend está alojado aparte, puede faltar VITE_WORKER_BASE.'
+    )
+  }
 }
 
 export function getEmployees(token: string): Promise<Employee[]> {
@@ -73,7 +80,9 @@ export function clock(token: string, employeeId: string, action: ClockAction): P
 
 export function describeError(e: unknown): string {
   if (e instanceof ApiError && e.status === 429) {
-    return 'Holded está limitando las peticiones. Se mantienen los datos actuales y se reintentará más tarde.'
+    return e.message.startsWith('Holded request failed')
+      ? 'Holded está limitando las peticiones. Se mantienen los datos actuales y se reintentará más tarde.'
+      : 'El kiosko está recibiendo demasiadas peticiones. Se mantienen los datos actuales y se reintentará más tarde.'
   }
   return e instanceof Error ? e.message : String(e)
 }

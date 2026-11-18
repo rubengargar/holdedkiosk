@@ -417,6 +417,28 @@ describe('rate limiting', () => {
 		expect((await call('/api/employees', { env, key: null })).status).toBe(429);
 	});
 
+	it('lets the request through when the limiter throws', async () => {
+		const env: Env = {
+			...ENV,
+			RATE_LIMITER: {
+				limit: async () => {
+					throw new Error('binding unavailable');
+				},
+			},
+		};
+
+		expect((await call('/api/employees', { env })).status).toBe(200);
+	});
+
+	it('answers preflight 204 even when the limiter denies everything', async () => {
+		const { keys, env } = limiter(() => false);
+
+		const response = await call('/api/employees', { env, method: 'OPTIONS', headers: { Origin: 'https://kiosk.test' } });
+
+		expect(response.status).toBe(204);
+		expect(keys).toEqual([]);
+	});
+
 	it('does not limit when the binding is absent', async () => {
 		expect(ENV.RATE_LIMITER).toBeUndefined();
 		expect((await call('/api/employees')).status).toBe(200);

@@ -74,6 +74,15 @@ function apiHeaders(request: Request, env: Env): Headers {
 	return headers;
 }
 
+async function withinRateLimit(env: Env, ip: string): Promise<boolean> {
+	if (!env.RATE_LIMITER) return true;
+	try {
+		return (await env.RATE_LIMITER.limit({ key: ip })).success;
+	} catch {
+		return true;
+	}
+}
+
 function json(body: unknown, status: number, headers: Headers): Response {
 	headers.set('Content-Type', 'application/json');
 	return new Response(JSON.stringify(body), { status, headers });
@@ -106,7 +115,7 @@ export default {
 		if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
 		try {
 			const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
-			if (env.RATE_LIMITER && !(await env.RATE_LIMITER.limit({ key: ip })).success) {
+			if (!(await withinRateLimit(env, ip))) {
 				headers.set('Retry-After', RATE_LIMIT_RETRY_AFTER);
 				return json({ error: 'Too many requests' }, 429, headers);
 			}
