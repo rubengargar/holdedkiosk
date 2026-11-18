@@ -16,7 +16,7 @@ The worker does not store tokens. The browser sends the token of the active comp
 
 *   Several Holded companies on one kiosk. Round avatars at the top left of the header switch between them with one tap, even with a single company. Each company keeps its own employee list, hidden employees, logo and loaded data.
 *   Automatic company name and logo. The worker reads them from Holded (`GET /api/account`) and returns only `name` (the trade name when set) and `logoUrl`. The logo is shown in the avatar and is never uploaded by hand. Without the optional `account:info.read` scope, or when Holded has no logo or the image fails to load, the avatar shows the company's initials on a colour derived from its id. The name field when adding a company is optional: a name you type always wins, an empty one takes the Holded name, and "Empresa N" is the fallback. The logo URL is built from a path that Holded returns, on `app.holded.com`. That host is observed behaviour, not documented.
-*   Per-company settings. The settings panel shows only the active company: rename, "Actualizar datos de Holded", token, hide/show employees and delete. Switch to another company to edit it. A separate "Kiosko" section holds the kiosk title and "Añadir empresa".
+*   Per-company settings. The settings panel starts with a company selector (one item per company and a round "+" button). The selected company is the active one and its settings are shown below: rename, "Actualizar datos de Holded", token, hide/show employees and delete. Select another company to edit it. "+" swaps the panel body for the "Añadir empresa" form, with "Cancelar" to go back. A "Kiosko" section with the kiosk title closes the company view.
 *   Lists employees with an active contract and no termination date.
 *   Hide employees, per company.
 *   Change the Holded token of a company from the settings panel. The new token is validated with one employee request before it replaces the old one, and the hidden employees are kept.
@@ -148,7 +148,7 @@ npm run build
 1. Open the kiosk URL.
 2. On first run, enter a company name and its Holded API token. The kiosk validates the token by loading the employee list.
 3. Tap "Entrada" or "Salida" next to a name. While someone is clocked in, "Pausa" and "Reanudar" pause and resume their session.
-4. Open the settings panel (gear icon) to rename, delete or change the token of companies, add another company, hide employees of the active company, or change the kiosk title.
+4. Open the settings panel (gear icon) to pick a company and rename, delete or change its token, hide its employees, or change the kiosk title, or press "+" to add another company.
 
 ## License
 

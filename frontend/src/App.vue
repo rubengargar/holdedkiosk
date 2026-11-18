@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import AccountAvatar from './AccountAvatar.vue'
 import AddAccountForm from './AddAccountForm.vue'
-import ChangeTokenForm from './ChangeTokenForm.vue'
+import SettingsPanel from './SettingsPanel.vue'
 import { avatarColors, getInitials } from './avatar'
 import { formatHHMM, trackedMs } from './board'
 import { useKiosk } from './kiosk'
@@ -29,8 +29,6 @@ const {
 const kioskTitle = ref(localStorage.getItem('kiosk_title') || 'Portal de fichado')
 const searchTerm = ref('')
 const showSettingsPanel = ref(false)
-const confirmingDelete = ref(false)
-const infoStatus = ref<'idle' | 'busy' | 'failed'>('idle')
 
 const greeting = computed(() => (new Date(now.value).getHours() < 12 ? 'Buenos días' : 'Buenas tardes'))
 
@@ -66,31 +64,15 @@ const rows = computed(() => {
 
 const clockedInCount = computed(() => rows.value.filter(row => row.isClockedIn).length)
 
-function saveKioskTitle() {
-  localStorage.setItem('kiosk_title', kioskTitle.value)
-}
-
-function onRename(id: string, event: Event) {
-  const input = event.target as HTMLInputElement
-  renameAccount(id, input.value)
-  input.value = accounts.value.find(a => a.id === id)?.name ?? ''
-}
-
-async function onRefreshInfo(id: string) {
-  infoStatus.value = 'busy'
-  infoStatus.value = (await refreshInfo(id)) ? 'idle' : 'failed'
-}
-
-function confirmDelete(id: string) {
+function onDelete(id: string) {
   deleteAccount(id)
-  confirmingDelete.value = false
   if (accounts.value.length === 0) showSettingsPanel.value = false
 }
 
+watch(kioskTitle, title => localStorage.setItem('kiosk_title', title))
+
 watch(activeId, () => {
   searchTerm.value = ''
-  confirmingDelete.value = false
-  infoStatus.value = 'idle'
 })
 </script>
 
@@ -102,117 +84,21 @@ watch(activeId, () => {
       @click="showSettingsPanel = false"
     ></div>
 
-    <div
-      :class="['fixed top-0 right-0 h-full bg-white shadow-xl z-50 transform transition-transform duration-300 ease-in-out w-80 p-6 overflow-y-auto', showSettingsPanel ? 'translate-x-0' : 'translate-x-full']"
-    >
-      <h3 class="text-xl font-semibold mb-6">Configuración</h3>
-
-      <section v-if="activeAccount" :key="activeAccount.id" aria-label="Configuración de la empresa" class="mb-6">
-        <div class="flex items-center gap-3 mb-4">
-          <div class="h-10 w-10 flex-shrink-0">
-            <AccountAvatar :account="activeAccount" />
-          </div>
-          <h4 class="text-lg font-semibold text-gray-800 truncate">{{ activeAccount.name }}</h4>
-        </div>
-
-        <label for="accountNameInput" class="block text-sm font-medium text-gray-700 mb-1">Nombre de la empresa</label>
-        <input
-          id="accountNameInput"
-          :value="activeAccount.name"
-          type="text"
-          class="w-full p-2 border border-gray-300 rounded-md shadow-sm"
-          @change="onRename(activeAccount.id, $event)"
-        />
-
-        <button
-          type="button"
-          class="mt-4 min-h-10 px-3 py-2 text-sm rounded bg-gray-200 hover:bg-gray-300 text-gray-800 disabled:opacity-60"
-          :disabled="infoStatus === 'busy'"
-          @click="onRefreshInfo(activeAccount.id)"
-        >
-          {{ infoStatus === 'busy' ? 'Actualizando...' : 'Actualizar datos de Holded' }}
-        </button>
-        <p v-if="infoStatus === 'failed'" class="text-red-600 mt-2 text-sm" role="alert">
-          No se pudieron obtener los datos. Comprueba que el token tenga el permiso account:info.read.
-        </p>
-
-        <p class="text-sm font-medium text-gray-700 mt-4 -mb-1">Token</p>
-        <ChangeTokenForm :account-name="activeAccount.name" :submit="token => changeToken(activeAccount!.id, token)" />
-
-        <h5 class="text-sm font-medium text-gray-700 mt-4 mb-1">Ocultar/Mostrar usuarios</h5>
-        <div class="max-h-60 overflow-y-auto border rounded-md p-2">
-          <div v-for="emp in employees" :key="`setting-${emp.id}`" class="flex items-center justify-between py-1">
-            <span>{{ emp.name }}</span>
-            <button
-              type="button"
-              @click="toggleHidden(emp.id)"
-              :class="['min-h-10 px-3 text-xs rounded', hiddenIds.has(emp.id) ? 'bg-gray-200 text-gray-700' : 'bg-blue-600 hover:bg-blue-700 text-white']"
-            >
-              {{ hiddenIds.has(emp.id) ? 'Mostrar' : 'Ocultar' }}
-            </button>
-          </div>
-          <p v-if="employees.length === 0" class="text-sm text-gray-500">No hay empleados para mostrar.</p>
-        </div>
-
-        <div v-if="confirmingDelete" class="mt-4 flex items-center gap-2">
-          <span class="text-sm text-gray-700 flex-1">¿Eliminar {{ activeAccount.name }}?</span>
-          <button
-            type="button"
-            class="min-h-10 px-3 py-2 text-sm rounded bg-red-500 hover:bg-red-600 text-white"
-            @click="confirmDelete(activeAccount.id)"
-          >
-            Confirmar
-          </button>
-          <button
-            type="button"
-            class="min-h-10 px-3 py-2 text-sm rounded bg-gray-200 hover:bg-gray-300 text-gray-800"
-            @click="confirmingDelete = false"
-          >
-            Cancelar
-          </button>
-        </div>
-        <button
-          v-else
-          type="button"
-          class="mt-4 min-h-10 px-3 py-2 text-sm rounded bg-gray-200 hover:bg-gray-300 text-gray-800"
-          @click="confirmingDelete = true"
-        >
-          Eliminar empresa
-        </button>
-      </section>
-
-      <section aria-label="Kiosko" class="border-t pt-6">
-        <h4 class="text-lg font-semibold text-gray-800 mb-4">Kiosko</h4>
-        <label for="kioskTitleInput" class="block text-sm font-medium text-gray-700 mb-1">Título del Kiosk</label>
-        <input
-          id="kioskTitleInput"
-          v-model="kioskTitle"
-          type="text"
-          class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-600 focus:border-blue-600 mb-6"
-          @input="saveKioskTitle"
-        />
-
-        <h5 class="text-sm font-medium text-gray-700 mb-1">Añadir empresa</h5>
-        <p class="text-sm text-gray-500 mb-2">
-          Obtén el token en
-          <a href="https://developers.holded.com/reference/api-key-1" target="_blank" class="text-blue-500 hover:underline">
-            Ajustes &gt; API
-          </a>
-        </p>
-        <AddAccountForm id-prefix="settings" submit-label="Añadir empresa" :submit="addAccount" />
-      </section>
-
-      <button
-        type="button"
-        aria-label="Cerrar configuración"
-        @click="showSettingsPanel = false"
-        class="absolute top-4 right-4 text-gray-500 hover:text-gray-700"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-    </div>
+    <SettingsPanel
+      v-model:kiosk-title="kioskTitle"
+      :open="showSettingsPanel"
+      :accounts="accounts"
+      :active-id="activeId"
+      :employees="employees"
+      :add-account="addAccount"
+      :change-token="changeToken"
+      :refresh-info="refreshInfo"
+      @close="showSettingsPanel = false"
+      @select="setActive"
+      @rename="renameAccount"
+      @toggle-hidden="toggleHidden"
+      @delete="onDelete"
+    />
 
     <div class="p-4 max-w-2xl mx-auto">
       <div v-if="accounts.length === 0">
