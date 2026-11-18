@@ -1,87 +1,71 @@
 # Holded Kiosk
 
-A monorepo application designed to provide a kiosk mode for Holded team capabilities for clocking employees. This application allows users to list employees, and perform clock-in and clock-out actions. 
-
-It uses a Cloudflare Worker as a backend proxy to communicate with the Holded API and a Vue.js frontend for the user interface. 
+A kiosk for clocking employees in and out of Holded. Workers tap their name to clock in or out. A Vue 3 frontend talks to a Cloudflare Worker, which proxies the Holded API.
 
 ## Screenshot
 
 ![Holded Kiosk Screenshot](/screenshot.png)
 
+## Security note
 
-# BE AWARE
-The Holded API token is stored locally in the browser's `localStorage`. Be aware of the security implications of storing sensitive information in the browser's `localStorage`.
+Holded API tokens are stored in the browser's `localStorage`, one per company, in plain text. There is no PIN or password protecting them, so anyone with access to the kiosk browser can read them. Use tokens with only the scopes listed below, and run the kiosk on a device you control.
 
-At the moment, there is no encryption or protection for the token. Neither PIN or password to protect the token.
+The worker does not store tokens. The browser sends the token of the active company in the `X-Holded-API-Key` header on each request, and the worker forwards it to Holded as a Bearer token. The worker returns only employee id and name, never the other employee fields Holded stores (IBAN, social security number, salary, address).
 
 ## Features
 
-*   List employees from your Holded account with active contract and no termination.
-*   Hide employes
-*   Clock-in and Clock-out functionality for each employee. Today's clocked time.
-*   Display the current status of each employee (clocked in or out).
-*   Sync every 2 minutes to keep the status updated.
-*   Responsive interface for kiosk usage, optimized for touchscreen devices as iPad Mini.
-*   Search and colored avatar for each employee.
-*   Quick view of current office status
-*   Dark mode support (light, dark, and system preference)
+*   Several Holded companies on one kiosk. With two or more companies, a row of tabs under the header switches between them. Each company keeps its own employee list, hidden employees and loaded data.
+*   Lists employees with an active contract and no termination date.
+*   Hide employees, per company.
+*   Clock-in and clock-out per employee, with the time tracked today.
+*   Search, colored avatars, and a Todo / Dentro / Fuera summary.
+*   Responsive layout for touchscreens such as an iPad Mini.
+*   Legacy single-token installs (`holded_token`, `hidden_employee_ids` in `localStorage`) migrate to one company automatically.
 
-## To Do
-*  Separate by workplaces
-*  Show leaves/holidays
-*  Multilenguage
-*  Dark mode
+### Holded API usage
 
+Holded allows 100 requests per minute per API key. The kiosk keeps well under that:
 
-## Project Structure
+*   The employee list is fetched when a company is added (this also validates the token), on first view after page load, when it is older than 15 minutes at poll time, and on the "Actualizar" button. It is not fetched on every poll.
+*   Times are fetched with one request that returns all employees' entries for the day. The kiosk polls every 2 minutes, only for the active company and only while the page is visible. Switching company or returning to the page refreshes only data older than 30 seconds.
+*   Clocking in or out sends one request and no follow-up reads. The local state is updated from the result and the next poll reconciles it.
+*   The tracked time shown on each row is computed in the browser once a minute.
+*   On a 429 response the kiosk shows a message and keeps the data already on screen.
 
-The project is a monorepo containing two main parts:
+## Project structure
 
-*   `frontend/`: A Vue.js 3 application built with Vite.
-*   `worker/`: A Cloudflare Worker script acting as a secure proxy to the Holded API.
+*   `frontend/`: Vue 3 + Vite + Tailwind app.
+*   `worker/`: Cloudflare Worker that proxies the Holded API (v2).
 
 ## Prerequisites
 
-Before you begin, ensure you have the following installed:
+*   [Node.js](https://nodejs.org/) 18 or later.
+*   [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/get-started/) (`npm install -g wrangler`).
+*   A Holded account with an API key. The worker uses Holded API v2 and sends the key as `Authorization: Bearer <key>`. The key needs these scopes:
+    *   `team:employees.read`
+    *   `team:time-tracking.read`
+    *   `team:time-tracking.write`
 
-*   [Node.js](https://nodejs.org/) (version 18.x or later recommended)
-*   [npm](https://www.npmjs.com/) (usually comes with Node.js)
-*   [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/get-started/) (for deploying the Cloudflare Worker)
-    ```bash
-    npm install -g wrangler
-    ```
-*   A Holded account with API access. You will need to generate an API token from your Holded settings.
+## Setup and deployment
 
-## Setup and Deployment
+### 1. Deploy the worker
 
-Follow these steps to set up and deploy the application:
-
-### 1. Clone the Repository
-
-```bash
-git clone <your-repository-url>
-cd holdedkiosk
-```
-
-### 2. Deploy the Cloudflare Worker
 ```bash
 cd worker
 wrangler login
-```
-
-#### 2.1 Configure the worker/wrangler.toml (optional)
-
-```bash
-name = "your-unique-worker-name" # Change this if needed
-```
-```bash
 wrangler deploy
 ```
-After successful deployment, Wrangler will output the URL of your worker (e.g., https://your-unique-worker-name.your-subdomain.workers.dev ). Copy this URL , as you'll need it for the frontend configuration.
 
-#### 2.2 Automatic deploys from Cloudflare Workers Builds
+Wrangler prints the worker URL, for example `https://holded-proxy-worker.your-subdomain.workers.dev`. The frontend needs it.
 
-If you connect this repository directly to Cloudflare Workers Builds from GitHub, configure it from the repository root with:
+Set `ALLOWED_ORIGINS` in `worker/wrangler.toml` to the comma-separated list of origins that may call the worker. The worker answers CORS requests only for those origins. The default is `https://holdedkiosk.pages.dev,http://localhost:5173`. Add the origin where you host the frontend.
+
+```toml
+[vars]
+ALLOWED_ORIGINS = "https://your-kiosk.pages.dev,http://localhost:5173"
+```
+
+To deploy from Cloudflare Workers Builds, connect the repository and use these settings from the repository root:
 
 ```text
 Root directory: /
@@ -91,47 +75,65 @@ Version command: npx wrangler versions upload
 Production branch: main
 ```
 
-This repository includes a root `wrangler.toml` that points to `worker/src/index.ts`, so the deploy command works correctly from the monorepo root.
+The root `wrangler.toml` points to `worker/src/index.ts`, so the deploy command works from the monorepo root.
 
-If you prefer, you can still deploy manually from `worker/` using `worker/wrangler.toml`.
-### 3. Configure the Frontend
+### 2. Configure and build the frontend
+
 ```bash
-cd ../frontend
+cd frontend
 npm install
-```
-#### 3.1 Open the .env file and configure the following variables:
-```bash
 cp .env.example .env
 ```
 
-#### Edit frontend/.env with your Cloudflare Worker URL
+Set the worker URL in `frontend/.env`:
+
 ```bash
-VITE_WORKER_BASE=https://your-unique-worker-name.your-subdomain.workers.dev
+VITE_WORKER_BASE=https://holded-proxy-worker.your-subdomain.workers.dev
 ```
-#### 3.2 Start the development server
-```bash
-npm run dev
-```
-The application should now be running at
-### 4 Build the frontend
+
+Build and deploy the `dist` folder to any static host. For Cloudflare Pages:
+
 ```bash
 npm run build
+wrangler pages deploy dist
 ```
-### 5 Deploy the frontend
-You can deploy the frontend to any static hosting service of your choice. For example, for Cloudflare Pages, you can run:
+
+## Local development against the mock
+
+`worker/test/mock-holded.mjs` stands in for Holded, so you can develop without a real account. Any API key starting with `key-` is accepted by the mock.
+
 ```bash
-wrangler pages publish dist
+# terminal 1: mock Holded on port 8788
+node worker/test/mock-holded.mjs 8788
+
+# terminal 2: worker on port 8787, pointed at the mock
+cd worker
+wrangler dev --var HOLDED_API_BASE:http://127.0.0.1:8788
+
+# terminal 3: frontend on port 5173
+cd frontend
+cp .env.example .env   # VITE_WORKER_BASE=http://localhost:8787
+npm run dev
 ```
-### 6 Access the Kiosk
-Open your web browser and navigate to the URL provided by the deployment process
+
+Add a company in the kiosk with a token such as `key-demo`. Use `key-other` for a second company.
+
+Frontend checks:
+
+```bash
+cd frontend
+npm test
+npx vue-tsc --noEmit
+npm run build
+```
 
 ## Usage
-1. Access the Kiosk: Open your web browser and navigate to the URL provided by the deployment process.
-2. Configure the Holded API Token: On the initial screen, enter your Holded API token.
-3. List Employees: After configuring the token, you will see a list of employees from your Holded account.
-4. Tap on each one to clock-in or clock-out.
 
-# Contributing
-Contributions are welcome! Please read our contribution guidelines before submitting a pull request.
-# License
-This project is licensed under the MIT License - see the LICENSE file for details.
+1. Open the kiosk URL.
+2. On first run, enter a company name and its Holded API token. The kiosk validates the token by loading the employee list.
+3. Tap "Entrada" or "Salida" next to a name.
+4. Open the settings panel (gear icon) to rename or delete companies, add another company, hide employees of the active company, or change the kiosk title.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

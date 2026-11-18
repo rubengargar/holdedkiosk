@@ -1,73 +1,73 @@
-const WORKER_BASE = import.meta.env.VITE_WORKER_BASE?.trim()
+const WORKER_BASE = import.meta.env.VITE_WORKER_BASE?.trim().replace(/\/+$/, '')
 
-export interface EmployeeDashboard {
+export interface Employee {
   id: string
   name: string
-  isClockedIn: boolean
-  isPaused: boolean
-  trackedTimeToday: string
 }
 
-function getStoredToken(): string {
-  const token = localStorage.getItem('holded_token')
-  if (!token) throw new Error('No token stored')
-  return token
+export interface TimeEntry {
+  employeeId: string
+  start: number
+  end: number | null
 }
 
-function getWorkerBase(): string {
-  if (!WORKER_BASE) {
-    throw new Error('VITE_WORKER_BASE no está configurado en frontend/.env')
-  }
+export class ApiError extends Error {
+  readonly status: number
 
-  return WORKER_BASE
-}
-
-function getRequestHeaders(): HeadersInit {
-  return {
-    'X-Holded-API-Key': getStoredToken(),
-    'X-Client-Timezone': Intl.DateTimeFormat().resolvedOptions().timeZone
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
   }
 }
 
-async function parseJsonResponse<T>(res: Response, fallbackMessage: string): Promise<T> {
+interface ErrorBody {
+  error?: string
+  detail?: string
+}
+
+async function request<T>(token: string, path: string, method: 'GET' | 'POST' = 'GET'): Promise<T> {
+  if (!WORKER_BASE) throw new ApiError(0, 'VITE_WORKER_BASE no está configurado en frontend/.env')
+
+  let res: Response
+  try {
+    res = await fetch(`${WORKER_BASE}${path}`, { method, headers: { 'X-Holded-API-Key': token } })
+  } catch {
+    throw new ApiError(0, 'No se pudo conectar con el servidor')
+  }
+
   if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`${fallbackMessage}: ${res.status} - ${text}`)
+    const body = (await res.json().catch(() => null)) as ErrorBody | null
+    const message = body?.error
+      ? body.detail
+        ? `${body.error}: ${body.detail}`
+        : body.error
+      : `Error ${res.status}`
+    throw new ApiError(res.status, message)
   }
 
-  return res.json()
+  return (await res.json()) as T
 }
 
-export async function getEmployeeDashboard(forceRefresh = false): Promise<EmployeeDashboard[]> {
-  const search = forceRefresh ? '?forceRefresh=1' : ''
-  const res = await fetch(`${getWorkerBase()}/api/dashboard${search}`, {
-    headers: getRequestHeaders()
-  })
-
-  return parseJsonResponse<EmployeeDashboard[]>(res, 'Error fetching dashboard')
+export function getEmployees(token: string): Promise<Employee[]> {
+  return request<Employee[]>(token, '/api/employees')
 }
 
-async function postEmployeeAction(employeeId: string, action: 'clockin' | 'clockout' | 'pause' | 'unpause') {
-  const res = await fetch(`${getWorkerBase()}/api/employees/${employeeId}/${action}`, {
-    method: 'POST',
-    headers: getRequestHeaders()
-  })
-
-  return parseJsonResponse<EmployeeDashboard>(res, `Error performing ${action}`)
+export function getTimes(token: string, since: number): Promise<TimeEntry[]> {
+  return request<TimeEntry[]>(token, `/api/times?since=${since}`)
 }
 
-export function clockIn(employeeId: string) {
-  return postEmployeeAction(employeeId, 'clockin')
+export function clockIn(token: string, employeeId: string): Promise<{ ok: true }> {
+  return request(token, `/api/employees/${encodeURIComponent(employeeId)}/clock-in`, 'POST')
 }
 
-export function clockOut(employeeId: string) {
-  return postEmployeeAction(employeeId, 'clockout')
+export function clockOut(token: string, employeeId: string): Promise<{ ok: true }> {
+  return request(token, `/api/employees/${encodeURIComponent(employeeId)}/clock-out`, 'POST')
 }
 
-export function pauseEmployee(employeeId: string) {
-  return postEmployeeAction(employeeId, 'pause')
-}
-
-export function unpauseEmployee(employeeId: string) {
-  return postEmployeeAction(employeeId, 'unpause')
+export function describeError(e: unknown): string {
+  if (e instanceof ApiError && e.status === 429) {
+    return 'Holded está limitando las peticiones. Se mantienen los datos actuales y se reintentará más tarde.'
+  }
+  return e instanceof Error ? e.message : String(e)
 }
