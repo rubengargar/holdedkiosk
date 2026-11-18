@@ -155,12 +155,6 @@ watch(
 
     <template v-else>
       <section v-if="activeAccount" :key="activeAccount.id" aria-label="Configuración de la empresa" class="mb-6">
-        <div class="flex items-center gap-3 mb-4">
-          <div class="h-10 w-10 flex-shrink-0">
-            <AccountAvatar :account="activeAccount" />
-          </div>
-          <h4 class="text-lg font-semibold text-gray-800 truncate">{{ activeAccount.name }}</h4>
-        </div>
 
         <label for="accountNameInput" class="block text-sm font-medium text-gray-700 mb-1">Nombre de la empresa</label>
         <input
