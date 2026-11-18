@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TimeEntry } from './api'
-import { applyClock, buildStatuses, dayStart, formatHHMM, isStaleTimes, trackedMs } from './board'
+import { applyClock, buildStatuses, dayStart, formatHHMM, isStaleTimes, mergePaused, prunePaused, trackedMs } from './board'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -52,6 +52,12 @@ describe('buildStatuses', () => {
 describe('trackedMs and formatHHMM', () => {
   it('adds completed time and the running span', () => {
     expect(trackedMs({ runningSince: NOON - HOUR, completedMs: 30 * MIN, paused: false }, NOON)).toBe(90 * MIN)
+  })
+
+  it('counts a running entry from the start of the day when it began before midnight', () => {
+    const status = { runningSince: START_OF_DAY - 2 * HOUR, completedMs: 0, paused: false }
+
+    expect(trackedMs(status, START_OF_DAY + 8 * HOUR)).toBe(8 * HOUR)
   })
 
   it('is zero without a status', () => {
@@ -141,5 +147,45 @@ describe('isStaleTimes', () => {
 
   it('keeps every response when no local action happened', () => {
     expect(isStaleTimes(NOON, null)).toBe(false)
+  })
+})
+
+describe('mergePaused', () => {
+  const running = (paused: boolean) => ({ runningSince: NOON - HOUR, completedMs: 0, paused })
+  const idle = { runningSince: null, completedMs: HOUR, paused: false }
+
+  it('shows paused when the server says so', () => {
+    const merged = mergePaused(new Map([['a', running(true)]]), new Set())
+
+    expect(merged.get('a')?.paused).toBe(true)
+  })
+
+  it('shows paused for a kiosk-paused id while the server still shows a running entry', () => {
+    const merged = mergePaused(new Map([['a', running(false)]]), new Set(['a']))
+
+    expect(merged.get('a')?.paused).toBe(true)
+  })
+
+  it('does not show paused for a kiosk-paused id without a running entry', () => {
+    const merged = mergePaused(new Map([['a', idle]]), new Set(['a']))
+
+    expect(merged.get('a')?.paused).toBe(false)
+  })
+
+  it('leaves other employees untouched', () => {
+    const merged = mergePaused(new Map([['b', running(false)]]), new Set(['a']))
+
+    expect(merged.get('b')?.paused).toBe(false)
+  })
+})
+
+describe('prunePaused', () => {
+  it('keeps only ids that still have a running entry', () => {
+    const entries: TimeEntry[] = [
+      { employeeId: 'a', start: NOON - HOUR, end: null, paused: false },
+      { employeeId: 'b', start: NOON - 2 * HOUR, end: NOON - HOUR, paused: false }
+    ]
+
+    expect([...prunePaused(new Set(['a', 'b', 'c']), entries)]).toEqual(['a'])
   })
 })

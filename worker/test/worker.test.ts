@@ -73,6 +73,16 @@ describe('GET /api/employees', () => {
 		expect(upstreamCalls).toHaveLength(2);
 	});
 
+	it('stops following cursors after 25 pages', async () => {
+		let n = 0;
+		stubUpstream(() => page([employee('1'.repeat(24), 'Alfa')], `p${++n}`));
+
+		const response = await call('/api/employees');
+
+		expect(response.status).toBe(200);
+		expect(upstreamCalls).toHaveLength(25);
+	});
+
 	it('authenticates upstream with the caller key as a Bearer token', async () => {
 		await call('/api/employees', { key: 'key-abc' });
 		expect(new Headers(upstreamCalls[0].init.headers).get('authorization')).toBe('Bearer key-abc');
@@ -99,6 +109,19 @@ describe('GET /api/times', () => {
 			url.searchParams.get('cursor') === 'p2'
 				? page([entry(ID, SINCE - HOUR, SINCE - HOUR / 2)])
 				: page([entry(ID, SINCE + 3 * HOUR, SINCE + 4 * HOUR), entry(ID, SINCE + HOUR, SINCE + 2 * HOUR)], 'p2')
+		);
+
+		const body = await (await call(`/api/times?since=${SINCE}`)).json();
+
+		expect(upstreamCalls).toHaveLength(2);
+		expect(body).toHaveLength(2);
+	});
+
+	it('keeps paging when the page is not sorted newest first, even if an entry is before since', async () => {
+		stubUpstream((url) =>
+			url.searchParams.get('cursor') === 'p2'
+				? page([entry(ID, SINCE + 5 * HOUR, SINCE + 6 * HOUR)])
+				: page([entry(ID, SINCE - HOUR, SINCE - HOUR / 2), entry(ID, SINCE + 3 * HOUR, SINCE + 4 * HOUR)], 'p2')
 		);
 
 		const body = await (await call(`/api/times?since=${SINCE}`)).json();
@@ -258,6 +281,7 @@ describe('auth, routing and CORS', () => {
 		expect(response.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173');
 		expect(response.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, OPTIONS');
 		expect(response.headers.get('Access-Control-Allow-Headers')).toContain('x-holded-api-key');
+		expect(response.headers.get('Access-Control-Max-Age')).toBe('86400');
 		expect(upstreamCalls).toHaveLength(0);
 	});
 });

@@ -58,6 +58,7 @@ function corsHeaders(request: Request, env: Env): Headers {
 		'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 		'Access-Control-Allow-Headers': 'x-holded-api-key, content-type',
 		'Access-Control-Expose-Headers': 'Retry-After',
+		'Access-Control-Max-Age': '86400',
 	});
 	const origin = request.headers.get('Origin');
 	const allowed = (env.ALLOWED_ORIGINS ?? '').split(',').map((entry) => entry.trim());

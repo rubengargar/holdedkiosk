@@ -25,6 +25,7 @@ export class HoldedError extends Error {
 const DEFAULT_BASE = 'https://api.holded.com';
 const PAGE_SIZE = 200;
 const MAX_TIME_PAGES = 5;
+const MAX_EMPLOYEE_PAGES = 25;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -96,14 +97,15 @@ function parseEntry(item: unknown): TimeEntry {
 export async function listActiveEmployees(env: Env, key: string): Promise<Employee[]> {
 	const employees: Employee[] = [];
 	let cursor: string | undefined;
-	do {
+	for (let fetched = 0; fetched < MAX_EMPLOYEE_PAGES; fetched++) {
 		const page = await fetchPage(env, key, '/api/v2/employees', cursor);
 		for (const item of page.items) {
 			const employee = parseEmployee(item);
 			if (employee) employees.push(employee);
 		}
+		if (!page.next) break;
 		cursor = page.next;
-	} while (cursor);
+	}
 	return employees;
 }
 
@@ -114,8 +116,9 @@ export async function listEntriesSince(env: Env, key: string, sinceMs: number): 
 		const page = await fetchPage(env, key, '/api/v2/employee-times', cursor);
 		const parsed = page.items.map(parseEntry);
 		entries.push(...parsed);
+		const newestFirst = parsed.every((entry, i) => i === 0 || parsed[i - 1].start >= entry.start);
 		const oldest = Math.min(...parsed.map((entry) => entry.start));
-		if (!page.next || oldest < sinceMs) break;
+		if (!page.next || (newestFirst && oldest < sinceMs)) break;
 		cursor = page.next;
 	}
 	return entries.filter((entry) => entry.start >= sinceMs || entry.end === null);

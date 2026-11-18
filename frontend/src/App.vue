@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import AddAccountForm from './AddAccountForm.vue'
+import ChangeTokenForm from './ChangeTokenForm.vue'
 import { formatHHMM, trackedMs } from './board'
 import { useKiosk } from './kiosk'
 
@@ -12,11 +13,13 @@ const {
   statuses,
   now,
   addAccount,
+  changeToken,
   renameAccount,
   deleteAccount,
   setActive,
   toggleHidden,
   clock,
+  dismissActionError,
   refresh
 } = useKiosk()
 
@@ -129,6 +132,7 @@ watch(activeId, () => {
             class="w-full p-2 border border-gray-300 rounded-md"
             @change="onRename(account.id, $event)"
           />
+          <ChangeTokenForm :account-name="account.name" :submit="token => changeToken(account.id, token)" />
           <div v-if="pendingDeleteId === account.id" class="mt-2 flex items-center gap-2">
             <span class="text-sm text-gray-700 flex-1">¿Eliminar {{ account.name }}?</span>
             <button
@@ -282,6 +286,18 @@ watch(activeId, () => {
 
         <p v-if="activeState.loading && employees.length === 0" class="text-center py-2">Cargando empleados...</p>
         <p v-if="activeState.error" class="text-red-600 mb-2 text-sm" role="status">{{ activeState.error }}</p>
+        <div
+          v-if="activeState.actionError"
+          class="flex items-start gap-2 mb-2 p-2 rounded-md bg-red-50 text-red-700 text-sm"
+          role="alert"
+        >
+          <span class="flex-1">{{ activeState.actionError }}</span>
+          <button type="button" aria-label="Cerrar aviso" class="text-red-700 hover:text-red-900" @click="dismissActionError">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
 
         <ul v-if="rows.length > 0" class="space-y-2">
           <li

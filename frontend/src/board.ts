@@ -35,8 +35,25 @@ export function buildStatuses(entries: TimeEntry[], dayStartMs: number): Map<str
 
 export function trackedMs(status: EmployeeStatus | undefined, now: number): number {
   if (!status) return 0
-  const running = status.runningSince == null ? 0 : Math.max(0, now - status.runningSince)
+  const running = status.runningSince == null ? 0 : Math.max(0, now - Math.max(status.runningSince, dayStart(now)))
   return status.completedMs + running
+}
+
+export function mergePaused(
+  statuses: Map<string, EmployeeStatus>,
+  pausedIds: ReadonlySet<string>
+): Map<string, EmployeeStatus> {
+  const merged = new Map<string, EmployeeStatus>()
+  for (const [id, status] of statuses) {
+    const pausedHere = pausedIds.has(id) && status.runningSince != null
+    merged.set(id, { ...status, paused: status.paused || pausedHere })
+  }
+  return merged
+}
+
+export function prunePaused(pausedIds: ReadonlySet<string>, entries: TimeEntry[]): Set<string> {
+  const running = new Set(entries.filter(entry => entry.end == null).map(entry => entry.employeeId))
+  return new Set([...pausedIds].filter(id => running.has(id)))
 }
 
 export function formatHHMM(ms: number): string {

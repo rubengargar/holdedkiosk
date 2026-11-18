@@ -7,7 +7,7 @@ import {
   saveActiveAccountId,
   type Account
 } from './accounts'
-import { applyClock, buildStatuses, dayStart, isStaleTimes } from './board'
+import { applyClock, buildStatuses, dayStart, isStaleTimes, mergePaused, prunePaused } from './board'
 import {
   clock as clockRequest,
   describeError,
@@ -25,6 +25,8 @@ export interface AccountState {
   timesFetchedAt: number | null
   loading: boolean
   error: string
+  actionError: string
+  pausedIds: Set<string>
   clocking: Record<string, boolean>
   lastActionAt: number | null
 }
@@ -44,6 +46,8 @@ function emptyState(): AccountState {
     timesFetchedAt: null,
     loading: false,
     error: '',
+    actionError: '',
+    pausedIds: new Set(),
     clocking: {},
     lastActionAt: null
   }
@@ -57,22 +61,35 @@ export function useKiosk() {
   const accounts = ref<Account[]>(loadAccounts(localStorage))
   const activeId = ref<string | null>(loadActiveAccountId(localStorage, accounts.value))
   const states = reactive<Record<string, AccountState>>({})
+  for (const account of accounts.value) states[account.id] = emptyState()
   const now = ref(Date.now())
 
   const activeAccount = computed(() => accounts.value.find(a => a.id === activeId.value) ?? null)
-  const activeState = computed(() => (activeId.value ? stateFor(activeId.value) : null))
-  const statuses = computed(() => buildStatuses(activeState.value?.entries ?? [], dayStart(now.value)))
+  const activeState = computed<AccountState | null>(() => (activeId.value ? states[activeId.value] ?? null : null))
+  const statuses = computed(() =>
+    mergePaused(
+      buildStatuses(activeState.value?.entries ?? [], dayStart(now.value)),
+      activeState.value?.pausedIds ?? new Set()
+    )
+  )
 
-  function stateFor(id: string): AccountState {
-    if (!states[id]) states[id] = emptyState()
-    return states[id]
+  async function loadTimes(account: Account, state: AccountState, at: number) {
+    try {
+      const entries = await getTimes(account.token, dayStart(at))
+      if (isStaleTimes(at, state.lastActionAt)) return
+      state.entries = entries
+      state.pausedIds = prunePaused(state.pausedIds, entries)
+      state.timesFetchedAt = Date.now()
+    } catch (e) {
+      state.error = describeError(e)
+    }
   }
 
   async function sync(id: string, mode: SyncMode) {
     const account = accounts.value.find(a => a.id === id)
     if (!account) return
-    const state = stateFor(id)
-    if (state.loading) return
+    const state = states[id]
+    if (!state || state.loading) return
 
     const at = Date.now()
     const needEmployees =
@@ -80,7 +97,7 @@ export function useKiosk() {
       state.employeesFetchedAt == null ||
       (mode === 'poll' && at - state.employeesFetchedAt > EMPLOYEES_TTL_MS)
     const needTimes =
-      mode !== 'view' || state.timesFetchedAt == null || at - state.timesFetchedAt > TIMES_STALE_MS
+      mode === 'manual' || state.timesFetchedAt == null || at - state.timesFetchedAt > TIMES_STALE_MS
     if (!needEmployees && !needTimes) return
 
     state.loading = true
@@ -94,18 +111,8 @@ export function useKiosk() {
         state.error = describeError(e)
       }
     }
-    const loadTimes = async () => {
-      try {
-        const entries = await getTimes(account.token, dayStart(at))
-        if (isStaleTimes(at, state.lastActionAt)) return
-        state.entries = entries
-        state.timesFetchedAt = Date.now()
-      } catch (e) {
-        state.error = describeError(e)
-      }
-    }
 
-    await Promise.all([needEmployees && loadEmployees(), needTimes && loadTimes()])
+    await Promise.all([needEmployees && loadEmployees(), needTimes && loadTimes(account, state, at)])
     state.loading = false
   }
 
@@ -123,6 +130,18 @@ export function useKiosk() {
     }
     accounts.value = [...accounts.value, account]
     activeId.value = account.id
+  }
+
+  async function changeToken(id: string, token: string) {
+    const trimmed = token.trim()
+    const employees = await getEmployees(trimmed)
+    accounts.value = accounts.value.map(a => (a.id === id ? { ...a, token: trimmed } : a))
+    const state = states[id]
+    if (state) {
+      state.employees = sortByName(employees)
+      state.employeesFetchedAt = Date.now()
+      state.error = ''
+    }
   }
 
   function renameAccount(id: string, name: string) {
@@ -155,20 +174,38 @@ export function useKiosk() {
   async function clock(employee: Employee, action: ClockAction) {
     const account = activeAccount.value
     if (!account) return
-    const state = stateFor(account.id)
+    const state = states[account.id]
+    if (!state) return
     state.clocking[employee.id] = true
-    state.error = ''
+    state.actionError = ''
 
+    const setPaused = (on: boolean) => {
+      const next = new Set(state.pausedIds)
+      if (on) next.add(employee.id)
+      else next.delete(employee.id)
+      state.pausedIds = next
+    }
+    let failed = false
     try {
       await clockRequest(account.token, employee.id, action)
       const doneAt = Date.now()
       state.entries = applyClock(state.entries, employee.id, action, doneAt)
       state.lastActionAt = doneAt
+      setPaused(action === 'pause')
     } catch (e) {
-      state.error = `Error al fichar a ${employee.name}: ${describeError(e)}`
+      failed = true
+      state.actionError = `Error al fichar a ${employee.name}: ${describeError(e)}`
+      if (action === 'unpause') setPaused(false)
     } finally {
       state.clocking[employee.id] = false
     }
+
+    if (failed) await loadTimes(account, state, Date.now())
+  }
+
+  function dismissActionError() {
+    const state = activeId.value ? states[activeId.value] : undefined
+    if (state) state.actionError = ''
   }
 
   watch(accounts, value => saveAccounts(localStorage, value), { deep: true })
@@ -209,11 +246,13 @@ export function useKiosk() {
     statuses,
     now,
     addAccount,
+    changeToken,
     renameAccount,
     deleteAccount,
     setActive,
     toggleHidden,
     clock,
+    dismissActionError,
     refresh: () => syncActive('manual')
   }
 }

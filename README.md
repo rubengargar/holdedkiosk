@@ -17,7 +17,9 @@ The worker does not store tokens. The browser sends the token of the active comp
 *   Several Holded companies on one kiosk. With two or more companies, a row of tabs under the header switches between them. Each company keeps its own employee list, hidden employees and loaded data.
 *   Lists employees with an active contract and no termination date.
 *   Hide employees, per company.
-*   Clock-in, clock-out, pause and resume per employee, with the time tracked today. Time keeps counting while paused.
+*   Change the Holded token of a company from the settings panel. The new token is validated with one employee request before it replaces the old one, and the hidden employees are kept.
+*   Clock-in, clock-out, pause and resume per employee, with the time tracked today. Time keeps counting while paused. A session that started before midnight (a night shift) counts only the hours since midnight in today's total.
+*   A failed clock action shows its error until the next action or until it is dismissed, and refreshes that company's times once so the row reflects the real state.
 *   Search, colored avatars, and a Todo / Dentro / Fuera summary.
 *   Responsive layout for touchscreens such as an iPad Mini.
 *   Legacy single-token installs (`holded_token`, `hidden_employee_ids` in `localStorage`) migrate to one company automatically.
@@ -27,7 +29,7 @@ The worker does not store tokens. The browser sends the token of the active comp
 Holded allows 100 requests per minute per API key. The kiosk keeps well under that:
 
 *   The employee list is fetched when a company is added (this also validates the token), on first view after page load, when it is older than 15 minutes at poll time, and on the "Actualizar" button. It is not fetched on every poll.
-*   Times are fetched with one request that returns all employees' entries for the day. The kiosk polls every 2 minutes, only for the active company and only while the page is visible. Switching company or returning to the page refreshes only data older than 30 seconds.
+*   Times are fetched with one request that returns all employees' entries for the day. The kiosk polls every 2 minutes, only for the active company and only while the page is visible. Switching company, returning to the page and polling refresh times only when they are older than 30 seconds.
 *   Clocking in, out, pausing or resuming sends one request and no follow-up reads. The local state is updated from the result and the next poll reconciles it.
 *   The tracked time shown on each row is computed in the browser once a minute.
 *   On a 429 response the kiosk shows a message and keeps the data already on screen.
@@ -147,7 +149,7 @@ npm run build
 1. Open the kiosk URL.
 2. On first run, enter a company name and its Holded API token. The kiosk validates the token by loading the employee list.
 3. Tap "Entrada" or "Salida" next to a name. While someone is clocked in, "Pausa" and "Reanudar" pause and resume their session.
-4. Open the settings panel (gear icon) to rename or delete companies, add another company, hide employees of the active company, or change the kiosk title.
+4. Open the settings panel (gear icon) to rename, delete or change the token of companies, add another company, hide employees of the active company, or change the kiosk title.
 
 ## License
 
