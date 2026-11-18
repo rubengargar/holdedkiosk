@@ -36,6 +36,25 @@ Para añadir otra empresa, pulsa "+" en el selector del panel de configuración.
 
 ![Formulario para añadir una empresa, con la lista de permisos que necesita el token](docs/img/add-company.png)
 
+## Montar la tablet en la pared
+
+El kiosko es una página web, así que sirve cualquier tablet barata con navegador, un soporte de pared y un cargador siempre enchufado.
+
+**Android con [Fully Kiosk Browser](https://www.fully-kiosk.com/)**
+
+1. Instala Fully Kiosk Browser desde Google Play o con su APK.
+2. En `Web Content Settings`, pon la dirección de tu kiosko en `Start URL`.
+3. Activa `Keep Screen On` para que la pantalla no se apague.
+4. En `Web Auto Reload`, activa `Auto Reload on Network Reconnect` para que se recupere sola si cae el wifi.
+5. En esa misma sección, deja desactivados `Delete Webstorage on Auto Reload` y `Delete Cookies on Auto Reload`. El kiosko guarda sus empresas en el almacenamiento del navegador, y borrarlo obliga a configurarlo de nuevo.
+6. Activa `Kiosk Mode` con un PIN para que nadie salga del navegador ni abra otras aplicaciones.
+
+Fully Kiosk se puede probar gratis con todas sus funciones. El modo kiosko requiere la licencia PLUS: 8,90 € más impuestos por dispositivo, pago único. Su fabricante desaconseja las tablets Amazon Fire para uso permanente.
+
+**iPad**
+
+No hace falta ninguna aplicación. Abre el kiosko en Safari y bloquéalo con Acceso guiado, que está en Ajustes, Accesibilidad.
+
 ## Cómo funciona
 
 ```mermaid

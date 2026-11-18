@@ -104,6 +104,10 @@ p { margin: 0; }
 .btn-plain { border-color: var(--ink); }
 .btn-plain:hover { background: var(--ink); color: var(--paper); }
 .btn svg { width: 1.5rem; height: 1.5rem; flex: none; }
+.cf-deploy { display: inline-flex; border-radius: 0.5rem; }
+.cf-deploy img { height: 3rem; width: auto; }
+.cf-deploy:hover img { filter: brightness(1.25); }
+@media (prefers-color-scheme: dark) { .cf-deploy img { outline: 1px solid rgba(255, 255, 255, 0.45); border-radius: 0.45rem; } }
 
 /* The wall */
 
@@ -138,7 +142,7 @@ p { margin: 0; }
 
 .pitch { padding-bottom: clamp(2rem, 5vw, 4.5rem); max-width: 34rem; }
 .pitch p { margin-top: 1.25rem; font-size: 1.15em; color: var(--ink-soft); max-width: 30rem; }
-.pitch .actions { margin-top: 1.9rem; display: flex; flex-wrap: wrap; gap: 0.8rem; }
+.pitch .actions { margin-top: 1.9rem; display: flex; flex-wrap: wrap; gap: 0.8rem; align-items: center; }
 .pitch .need { margin-top: 1.1rem; font-size: 0.9em; }
 
 .mounted { position: relative; justify-self: center; width: min(100%, 34rem); padding-bottom: 5.5rem; }
@@ -328,6 +332,15 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
   .leg { max-width: 8.5rem; }
   .leg::after { width: 100%; height: 2px; margin: 0.4rem 0 0; }
 }
+.hardware { display: grid; gap: 2.5rem; grid-template-columns: minmax(0, 1fr); margin-top: 2.2rem; }
+.hardware h3 { margin-bottom: 0.7rem; }
+.hardware ol, .hardware ul { margin: 0; padding-left: 1.3rem; display: grid; gap: 0.6rem; color: var(--ink-soft); }
+.hardware strong { color: var(--ink); font-weight: 700; }
+.hardware .aside { border-left: 3px solid var(--ink); padding-left: 1.2rem; }
+.hardware .aside p + p, .hardware .aside h3 + p { margin-top: 0.6rem; }
+.hardware .aside p { color: var(--ink-soft); }
+.hardware .aside h3:not(:first-child) { margin-top: 1.6rem; }
+@media (min-width: 56rem) { .hardware { grid-template-columns: 1.25fr 1fr; gap: 3.5rem; } }
 .budget { margin-top: 1.8rem; max-width: 44rem; color: var(--ink-soft); }
 
 .honest { display: grid; gap: 2rem; grid-template-columns: minmax(0, 1fr); margin-top: 2rem; }
@@ -343,7 +356,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 @media (min-width: 48rem) { .pair { grid-template-columns: 1fr 1fr; } }
 
 .close { text-align: left; }
-.close .actions { margin-top: 1.6rem; display: flex; flex-wrap: wrap; gap: 0.8rem; }
+.close .actions { margin-top: 1.6rem; display: flex; flex-wrap: wrap; gap: 0.8rem; align-items: center; }
 
 footer { border-top: 1px solid var(--line); padding-block: 2rem 3rem; color: var(--ink-soft); font-size: 0.92em; }
 footer p + p { margin-top: 0.6rem; }
@@ -360,6 +373,7 @@ footer p { max-width: 46rem; }
       <span>Holded Kiosk</span>
       <nav aria-label="Secciones">
         <a href="#despliegue">Despliegue</a>
+        <a href="#tablet">La tablet</a>
         <a href="#seguridad">Seguridad</a>
         <a href="https://github.com/rubengargar/holdedkiosk">GitHub</a>
       </nav>
@@ -370,7 +384,7 @@ footer p { max-width: 46rem; }
         <h1>Una tablet en la pared para fichar en Holded</h1>
         <p>Se cuelga junto a la puerta de la oficina. Cada persona toca su nombre al entrar, al salir o al parar a comer, y el fichaje queda registrado en Holded.</p>
         <div class="actions">
-          <a class="btn btn-go" href="https://deploy.workers.cloudflare.com/?url=https://github.com/rubengargar/holdedkiosk">Desplegar en Cloudflare</a>
+          <a class="cf-deploy" href="https://deploy.workers.cloudflare.com/?url=https://github.com/rubengargar/holdedkiosk"><img src="img/deploy-button.svg" width="184" height="39" alt="Deploy to Cloudflare (desplegar en Cloudflare)"></a>
           <a class="btn btn-plain" href="https://github.com/rubengargar/holdedkiosk">Ver el código</a>
         </div>
         <p class="need">Código abierto, licencia MIT. Se instala en tu propia cuenta de Cloudflare.</p>
@@ -433,11 +447,11 @@ footer p { max-width: 46rem; }
     <h2>De cero a colgada en la pared</h2>
     <p class="lede">Necesitas una cuenta de Cloudflare, una de GitHub y acceso de administrador a Holded.</p>
     <ol class="steps">
-      <li><h3>Pulsa «Desplegar en Cloudflare»</h3><p>Cloudflare copia el código a tu GitHub y publica el kiosko en tu cuenta, con tu propia dirección. Nada pasa por la infraestructura del autor.</p></li>
+      <li><h3>Pulsa «Deploy to Cloudflare»</h3><p>Cloudflare copia el código a tu GitHub y publica el kiosko en tu cuenta, con tu propia dirección. Nada pasa por la infraestructura del autor.</p></li>
       <li><h3>Crea una clave de API en Holded</h3><p>Con los permisos de la tabla de abajo y nada más. Mejor una clave dedicada al kiosko.</p></li>
       <li><h3>Abre el kiosko en la tablet</h3><p>Pega la clave una vez. El nombre y el logo de la empresa se cargan solos, y aparece la plantilla.</p></li>
     </ol>
-    <p class="after-steps"><a class="btn btn-go" href="https://deploy.workers.cloudflare.com/?url=https://github.com/rubengargar/holdedkiosk">Desplegar en Cloudflare</a></p>
+    <p class="after-steps"><a class="cf-deploy" href="https://deploy.workers.cloudflare.com/?url=https://github.com/rubengargar/holdedkiosk"><img src="img/deploy-button.svg" width="184" height="39" alt="Deploy to Cloudflare (desplegar en Cloudflare)"></a></p>
 
     <table>
       <caption>Permisos de la clave de Holded</caption>
@@ -449,6 +463,33 @@ footer p { max-width: 46rem; }
         <tr><td><code>account:info.read</code></td><td>No</td><td>Nombre y logo de la empresa. Sin él se muestran las iniciales</td></tr>
       </tbody>
     </table>
+  </div>
+</section>
+
+<section id="tablet">
+  <div class="wrap">
+    <h2>Cualquier tablet barata sirve</h2>
+    <p class="lede">El kiosko es una página web. Solo hace falta una tablet con navegador, un soporte de pared y un cargador siempre enchufado.</p>
+    <div class="hardware">
+      <div>
+        <h3>Android con Fully Kiosk Browser</h3>
+        <ol>
+          <li>Instala <strong>Fully Kiosk Browser</strong> desde Google Play o con su APK.</li>
+          <li>En <strong>Web Content Settings</strong>, pon la dirección de tu kiosko en <strong>Start URL</strong>.</li>
+          <li>Activa <strong>Keep Screen On</strong> para que la pantalla no se apague.</li>
+          <li>En <strong>Web Auto Reload</strong>, activa <strong>Auto Reload on Network Reconnect</strong> para que se recupere sola si cae el wifi.</li>
+          <li>En esa misma sección, deja desactivados <strong>Delete Webstorage on Auto Reload</strong> y <strong>Delete Cookies on Auto Reload</strong>. El kiosko guarda sus empresas en el almacenamiento del navegador, y borrarlo obliga a configurarlo de nuevo.</li>
+          <li>Activa <strong>Kiosk Mode</strong> con un PIN para que nadie salga del navegador ni abra otras aplicaciones.</li>
+        </ol>
+      </div>
+      <div class="aside">
+        <h3>Lo que cuesta</h3>
+        <p>Fully Kiosk se puede probar gratis con todas sus funciones. El modo kiosko requiere la licencia PLUS: 8,90 € más impuestos por dispositivo, pago único.</p>
+        <p>Su fabricante desaconseja las tablets Amazon Fire para uso permanente.</p>
+        <h3>Con un iPad</h3>
+        <p>No hace falta ninguna aplicación. Abre el kiosko en Safari y bloquéalo con Acceso guiado, que está en Ajustes, Accesibilidad.</p>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -495,6 +536,7 @@ footer p { max-width: 46rem; }
           <li>La dirección del kiosko no tiene contraseña. Quien copie la clave sellada de la tablet puede usar tu Worker desde otro sitio para ver nombres y fichar.</li>
           <li>La clave viaja sin cifrar por dentro de la conexión segura una vez, al escribirla. Quien administre tu Worker puede leerla.</li>
           <li>Usa una clave dedicada, solo con los permisos de la tabla, y una tablet que controles.</li>
+          <li>Si vienes de una versión anterior, la clave ya estuvo guardada sin cifrar en la tablet. Tras actualizar, recarga cada tablet, revoca esa clave en Holded y crea una nueva.</li>
         </ul>
       </div>
     </div>
@@ -523,7 +565,7 @@ footer p { max-width: 46rem; }
     <h2>Diez minutos y un clavo en la pared</h2>
     <p class="lede">El despliegue crea el kiosko en tu cuenta. Si no te convence, borras el Worker y revocas la clave.</p>
     <div class="actions">
-      <a class="btn btn-go" href="https://deploy.workers.cloudflare.com/?url=https://github.com/rubengargar/holdedkiosk">Desplegar en Cloudflare</a>
+      <a class="cf-deploy" href="https://deploy.workers.cloudflare.com/?url=https://github.com/rubengargar/holdedkiosk"><img src="img/deploy-button.svg" width="184" height="39" alt="Deploy to Cloudflare (desplegar en Cloudflare)"></a>
       <a class="btn btn-plain" href="https://github.com/rubengargar/holdedkiosk#readme">Leer la documentación</a>
     </div>
   </div>
