@@ -1,400 +1,103 @@
-interface Env {}
+import type { Env } from './env';
+import { HoldedError, clock, listActiveEmployees, listEntriesSince } from './holded';
 
-interface HoldedEmployee {
-	id: string;
-	name?: string;
-	lastName?: string;
-	terminated?: string | null;
-	currentContract?: Record<string, unknown> | null;
-}
-
-interface EmployeeSummary {
-	id: string;
-	name: string;
-	isClockedIn: boolean;
-	isPaused: boolean;
-	trackedTimeToday: string;
-}
-
-interface CacheEnvelope<T> {
-	cachedAt: number;
-	data: T;
-}
-
-const EMPLOYEES_TTL_MS = 24 * 60 * 60 * 1000;
-const STATUS_TTL_MS = 30 * 60 * 1000;
-const MAX_STATUS_REFRESHES_PER_REQUEST = 20;
-
-const corsHeaders = {
-	'Access-Control-Allow-Origin': '*',
-	'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-	'Access-Control-Allow-Headers': 'Content-Type, X-Holded-API-Key, X-Client-Timezone',
-};
-
-async function handleOptions(request: Request) {
-	if (
-		request.headers.get('Origin') !== null &&
-		request.headers.get('Access-Control-Request-Method') !== null &&
-		request.headers.get('Access-Control-Request-Headers') !== null
+class HttpError extends Error {
+	constructor(
+		readonly status: number,
+		message: string
 	) {
-		return new Response(null, {
-			headers: corsHeaders,
-			status: 200,
-		});
-	}
-
-	return new Response(null, {
-		headers: { Allow: 'GET, POST, OPTIONS' },
-		status: 204,
-	});
-}
-
-function jsonResponse(data: unknown, status = 200): Response {
-	return new Response(JSON.stringify(data), {
-		status,
-		headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-	});
-}
-
-function getTimezone(request: Request): string {
-	return request.headers.get('X-Client-Timezone') || 'UTC';
-}
-
-async function hashValue(value: string): Promise<string> {
-	const buffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
-	return Array.from(new Uint8Array(buffer))
-		.map((byte) => byte.toString(16).padStart(2, '0'))
-		.join('');
-}
-
-function createCacheRequest(request: Request, key: string): Request {
-	const url = new URL(request.url);
-	return new Request(`${url.origin}/__cache/${key}`);
-}
-
-async function readCacheEnvelope<T>(request: Request, key: string): Promise<CacheEnvelope<T> | null> {
-	const cachedResponse = await caches.default.match(createCacheRequest(request, key));
-	if (!cachedResponse) return null;
-
-	try {
-		return (await cachedResponse.json()) as CacheEnvelope<T>;
-	} catch {
-		return null;
+		super(message);
 	}
 }
 
-async function writeCacheEnvelope<T>(request: Request, key: string, data: T): Promise<void> {
-	const cacheResponse = new Response(
-		JSON.stringify({
-			cachedAt: Date.now(),
-			data,
-		} satisfies CacheEnvelope<T>),
-		{ headers: { 'Content-Type': 'application/json' } }
-	);
-
-	await caches.default.put(createCacheRequest(request, key), cacheResponse);
+interface Context {
+	env: Env;
+	key: string;
+	url: URL;
+	params: string[];
 }
 
-function isCacheFresh(envelope: CacheEnvelope<unknown> | null, ttlMs: number): boolean {
-	return !!envelope && Date.now() - envelope.cachedAt < ttlMs;
+interface Route {
+	method: string;
+	pattern: RegExp;
+	handler: (context: Context) => Promise<unknown>;
 }
 
-async function fetchHoldedJson<T>(holdedApiKey: string, path: string, init?: RequestInit): Promise<T> {
-	const response = await fetch(`https://api.holded.com${path}`, {
-		...init,
-		headers: {
-			accept: 'application/json',
-			'Content-Type': 'application/json',
-			key: holdedApiKey,
-			...(init?.headers || {}),
+const EMPLOYEE_ID = /^[a-f0-9]{24}$/;
+
+const clockRoute = (action: 'clock-in' | 'clock-out'): Route => ({
+	method: 'POST',
+	pattern: new RegExp(`^/api/employees/([^/]+)/${action}$`),
+	handler: async ({ env, key, params: [id] }) => {
+		if (!EMPLOYEE_ID.test(id)) throw new HttpError(400, 'Invalid employee id');
+		await clock(env, key, id, action);
+		return { ok: true };
+	},
+});
+
+const routes: Route[] = [
+	{ method: 'GET', pattern: /^\/api\/employees$/, handler: ({ env, key }) => listActiveEmployees(env, key) },
+	{
+		method: 'GET',
+		pattern: /^\/api\/times$/,
+		handler: ({ env, key, url }) => {
+			const since = url.searchParams.get('since');
+			const sinceMs = since ? Number(since) : NaN;
+			if (!Number.isFinite(sinceMs)) throw new HttpError(400, 'since must be a number of epoch milliseconds');
+			return listEntriesSince(env, key, sinceMs);
 		},
+	},
+	clockRoute('clock-in'),
+	clockRoute('clock-out'),
+];
+
+function corsHeaders(request: Request, env: Env): Headers {
+	const headers = new Headers({
+		Vary: 'Origin',
+		'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+		'Access-Control-Allow-Headers': 'x-holded-api-key, content-type',
+		'Access-Control-Expose-Headers': 'Retry-After',
 	});
+	const origin = request.headers.get('Origin');
+	const allowed = (env.ALLOWED_ORIGINS ?? '').split(',').map((entry) => entry.trim());
+	if (origin && allowed.includes(origin)) headers.set('Access-Control-Allow-Origin', origin);
+	return headers;
+}
 
-	if (!response.ok) {
-		const errorData = await response.text();
-		throw new Error(`${response.status}: ${errorData}`);
+function json(body: unknown, status: number, headers: Headers): Response {
+	headers.set('Content-Type', 'application/json');
+	return new Response(JSON.stringify(body), { status, headers });
+}
+
+function errorResponse(error: unknown, headers: Headers): Response {
+	if (error instanceof HoldedError) {
+		if (error.retryAfter) headers.set('Retry-After', error.retryAfter);
+		return json({ error: 'Holded request failed', detail: error.detail }, error.status, headers);
 	}
-
-	const text = await response.text();
-	return (text ? JSON.parse(text) : {}) as T;
+	if (error instanceof HttpError) return json({ error: error.message }, error.status, headers);
+	return json({ error: 'Internal error' }, 500, headers);
 }
 
-function isActiveEmployee(employee: HoldedEmployee): boolean {
-	const isTerminated = employee.terminated !== null && employee.terminated !== undefined && employee.terminated !== '';
-	const hasValidContract =
-		employee.currentContract && typeof employee.currentContract === 'object' && !Array.isArray(employee.currentContract);
+async function dispatch(request: Request, env: Env): Promise<unknown> {
+	const key = request.headers.get('X-Holded-API-Key');
+	if (!key) throw new HttpError(401, 'Missing X-Holded-API-Key header');
 
-	return !isTerminated && !!hasValidContract;
-}
-
-function getEmployeeName(employee: HoldedEmployee): string {
-	return `${employee.name || ''} ${employee.lastName || ''}`.trim() || 'Empleado Desconocido';
-}
-
-function getDateKey(timestampMs: number, timezone: string): string {
-	return new Intl.DateTimeFormat('en-CA', {
-		timeZone: timezone,
-		year: 'numeric',
-		month: '2-digit',
-		day: '2-digit',
-	})
-		.format(new Date(timestampMs))
-		.replace(/\//g, '-');
-}
-
-function summarizeEmployeeTimes(timesResponse: any, employee: HoldedEmployee, timezone: string): EmployeeSummary {
-	const timeEntries = Array.isArray(timesResponse?.employeesTimeTracking)
-		? timesResponse.employeesTimeTracking
-		: Array.isArray(timesResponse?.data)
-			? timesResponse.data
-			: [];
-
-	const todayKey = getDateKey(Date.now(), timezone);
-	let isClockedIn = false;
-	let isPaused = false;
-	let totalTrackedMsToday = 0;
-
-	for (const entry of timeEntries) {
-		if (!entry || typeof entry.start !== 'number') continue;
-
-		const clockInTimestamp = entry.start * 1000;
-		if (getDateKey(clockInTimestamp, timezone) !== todayKey) continue;
-
-		const status = typeof entry.status === 'string' ? entry.status.toLowerCase() : '';
-		const isRunning = entry.end === 0 || status === 'running' || status === 'paused';
-		const clockOutTimestamp = isRunning ? Date.now() : entry.end * 1000;
-
-		totalTrackedMsToday += Math.max(0, clockOutTimestamp - clockInTimestamp);
-		if (isRunning) isClockedIn = true;
-		if (status === 'paused') isPaused = true;
+	const url = new URL(request.url);
+	for (const route of routes) {
+		const match = route.method === request.method ? route.pattern.exec(url.pathname) : null;
+		if (match) return route.handler({ env, key, url, params: match.slice(1) });
 	}
-
-	const hours = Math.floor(totalTrackedMsToday / (1000 * 60 * 60));
-	const minutes = Math.floor((totalTrackedMsToday % (1000 * 60 * 60)) / (1000 * 60));
-
-	return {
-		id: employee.id,
-		name: getEmployeeName(employee),
-		isClockedIn,
-		isPaused: isClockedIn && isPaused,
-		trackedTimeToday: `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`,
-	};
-}
-
-function getDefaultEmployeeSummary(employee: HoldedEmployee): EmployeeSummary {
-	return {
-		id: employee.id,
-		name: getEmployeeName(employee),
-		isClockedIn: false,
-		isPaused: false,
-		trackedTimeToday: '00:00',
-	};
-}
-
-async function getActiveEmployees(request: Request, holdedApiKey: string, forceRefresh: boolean): Promise<HoldedEmployee[]> {
-	const tokenHash = await hashValue(holdedApiKey);
-	const cacheKey = `employees/${tokenHash}`;
-	const cached = await readCacheEnvelope<HoldedEmployee[]>(request, cacheKey);
-
-	if (!forceRefresh && isCacheFresh(cached, EMPLOYEES_TTL_MS)) {
-		return cached!.data;
-	}
-
-	try {
-		let allEmployees: HoldedEmployee[] = [];
-		let page = 1;
-		const perPage = 50;
-		let moreEmployeesExist = true;
-
-		while (moreEmployeesExist) {
-			const data = await fetchHoldedJson<{ employees?: HoldedEmployee[] }>(
-				holdedApiKey,
-				`/api/team/v1/employees?page=${page}&perPage=${perPage}`
-			);
-
-			if (!data || !Array.isArray(data.employees)) {
-				throw new Error('Unexpected response format when fetching employees');
-			}
-
-			allEmployees = allEmployees.concat(data.employees);
-			moreEmployeesExist = data.employees.length === perPage;
-			page++;
-		}
-
-		const activeEmployees = allEmployees.filter(isActiveEmployee);
-		await writeCacheEnvelope(request, cacheKey, activeEmployees);
-		return activeEmployees;
-	} catch (error) {
-		if (cached) return cached.data;
-		throw error;
-	}
-}
-
-async function getDashboardCacheKey(holdedApiKey: string, timezone: string): Promise<string> {
-	const tokenHash = await hashValue(holdedApiKey);
-	const timezoneHash = await hashValue(timezone);
-	return `dashboard/${tokenHash}/${timezoneHash}`;
-}
-
-async function readDashboardCache(
-	request: Request,
-	holdedApiKey: string,
-	timezone: string
-): Promise<CacheEnvelope<EmployeeSummary[]> | null> {
-	return readCacheEnvelope<EmployeeSummary[]>(request, await getDashboardCacheKey(holdedApiKey, timezone));
-}
-
-async function writeDashboardCache(
-	request: Request,
-	holdedApiKey: string,
-	timezone: string,
-	summaries: EmployeeSummary[]
-): Promise<void> {
-	await writeCacheEnvelope(request, await getDashboardCacheKey(holdedApiKey, timezone), summaries);
-}
-
-function mergeEmployeesWithSummaries(
-	employees: HoldedEmployee[],
-	cachedSummaries: EmployeeSummary[] | null
-): EmployeeSummary[] {
-	const summaryById = new Map((cachedSummaries || []).map((summary) => [summary.id, summary]));
-	return employees.map((employee) => summaryById.get(employee.id) || getDefaultEmployeeSummary(employee));
-}
-
-function pickRefreshTargets(
-	currentSummaries: EmployeeSummary[],
-	cachedDashboard: CacheEnvelope<EmployeeSummary[]> | null,
-	forceRefresh: boolean
-): EmployeeSummary[] {
-	if (forceRefresh) {
-		return currentSummaries.slice(0, MAX_STATUS_REFRESHES_PER_REQUEST);
-	}
-
-	if (!cachedDashboard) {
-		return currentSummaries.slice(0, MAX_STATUS_REFRESHES_PER_REQUEST);
-	}
-
-	if (isCacheFresh(cachedDashboard, STATUS_TTL_MS)) {
-		return [];
-	}
-
-	return currentSummaries.slice(0, MAX_STATUS_REFRESHES_PER_REQUEST);
-}
-
-async function fetchEmployeeStatusSummary(
-	holdedApiKey: string,
-	employee: HoldedEmployee,
-	timezone: string
-): Promise<EmployeeSummary> {
-	const timesResponse = await fetchHoldedJson<any>(holdedApiKey, `/api/team/v1/employees/${employee.id}/times`);
-	return summarizeEmployeeTimes(timesResponse, employee, timezone);
-}
-
-async function buildDashboardSummaries(
-	request: Request,
-	holdedApiKey: string,
-	employees: HoldedEmployee[],
-	timezone: string,
-	forceRefresh: boolean
-): Promise<EmployeeSummary[]> {
-	const cachedDashboard = await readDashboardCache(request, holdedApiKey, timezone);
-	const currentSummaries = mergeEmployeesWithSummaries(employees, cachedDashboard?.data || null);
-	const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
-	const refreshTargets = pickRefreshTargets(currentSummaries, cachedDashboard, forceRefresh);
-
-	if (refreshTargets.length === 0) {
-		return currentSummaries;
-	}
-
-	const refreshedSummaries = await Promise.all(
-		refreshTargets.map((summary) =>
-			fetchEmployeeStatusSummary(holdedApiKey, employeeById.get(summary.id)!, timezone)
-		)
-	);
-
-	const refreshedById = new Map(refreshedSummaries.map((summary) => [summary.id, summary]));
-	const mergedSummaries = currentSummaries.map((summary) => refreshedById.get(summary.id) || summary);
-
-	await writeDashboardCache(request, holdedApiKey, timezone, mergedSummaries);
-	return mergedSummaries;
-}
-
-async function postHoldedTimeAction(holdedApiKey: string, employeeId: string, action: string): Promise<void> {
-	await fetchHoldedJson<any>(holdedApiKey, `/api/team/v1/employees/${employeeId}/times/${action}`, {
-		method: 'POST',
-	});
-}
-
-async function refreshEmployeeStatusCache(
-	request: Request,
-	holdedApiKey: string,
-	employeeId: string,
-	timezone: string
-): Promise<EmployeeSummary> {
-	const employees = await getActiveEmployees(request, holdedApiKey, false);
-	const employee = employees.find((item) => item.id === employeeId);
-	if (!employee) throw new Error('Employee not found in active employees cache');
-
-	const summary = await fetchEmployeeStatusSummary(holdedApiKey, employee, timezone);
-	const cachedDashboard = await readDashboardCache(request, holdedApiKey, timezone);
-	const currentSummaries = mergeEmployeesWithSummaries(employees, cachedDashboard?.data || null);
-	const nextSummaries = currentSummaries.map((item) => (item.id === summary.id ? summary : item));
-
-	await writeDashboardCache(request, holdedApiKey, timezone, nextSummaries);
-	return summary;
+	throw new HttpError(404, 'Not found');
 }
 
 export default {
-	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-		void env;
-		void ctx;
-
-		const url = new URL(request.url);
-		if (request.method === 'OPTIONS') {
-			return handleOptions(request);
+	async fetch(request: Request, env: Env): Promise<Response> {
+		const headers = corsHeaders(request, env);
+		if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
+		try {
+			return json(await dispatch(request, env), 200, headers);
+		} catch (error) {
+			return errorResponse(error, headers);
 		}
-
-		const holdedApiKey = request.headers.get('X-Holded-API-Key');
-		if (!holdedApiKey) {
-			return jsonResponse({ error: 'No token provided' }, 401);
-		}
-
-		const timezone = getTimezone(request);
-		const forceRefresh = url.searchParams.get('forceRefresh') === '1';
-
-		if (url.pathname === '/api/dashboard' && request.method === 'GET') {
-			try {
-				const employees = await getActiveEmployees(request, holdedApiKey, forceRefresh);
-				const summaries = await buildDashboardSummaries(request, holdedApiKey, employees, timezone, forceRefresh);
-				summaries.sort((a, b) => a.name.localeCompare(b.name));
-				return jsonResponse(summaries);
-			} catch (error: any) {
-				console.error('Error fetching dashboard:', error);
-				return jsonResponse(
-					{ error: 'Internal server error while fetching dashboard', details: error.message },
-					500
-				);
-			}
-		}
-
-		const actionMatch = url.pathname.match(/^\/api\/employees\/([^/]+)\/(clockin|clockout|pause|unpause)$/);
-		if (actionMatch && request.method === 'POST') {
-			const employeeId = actionMatch[1];
-			const action = actionMatch[2];
-
-			try {
-				await postHoldedTimeAction(holdedApiKey, employeeId, action);
-				const summary = await refreshEmployeeStatusCache(request, holdedApiKey, employeeId, timezone);
-				return jsonResponse(summary);
-			} catch (error: any) {
-				console.error(`Error during ${action} action:`, error);
-				return jsonResponse(
-					{ error: `Failed to ${action}`, details: error.message },
-					error.message?.match(/^\d{3}:/) ? Number(error.message.slice(0, 3)) : 500
-				);
-			}
-		}
-
-		return new Response('Not Found', { status: 404, headers: corsHeaders });
 	},
 };
