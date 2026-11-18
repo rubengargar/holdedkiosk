@@ -3,281 +3,540 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Holded Kiosk</title>
-<meta name="description" content="Kiosko de fichaje para tablet que usa Holded. Cada persona toca su nombre para fichar entrada, salida, pausa o reanudar. Se despliega en tu propia cuenta de Cloudflare.">
+<title>Holded Kiosk: una tablet en la pared para fichar en Holded</title>
+<meta name="description" content="Kiosko de fichaje para Holded. Una tablet en la pared de la oficina: cada persona toca su nombre para fichar entrada, salida y pausas. Código abierto, se despliega en tu cuenta de Cloudflare.">
 <meta name="color-scheme" content="light dark">
 <style>
-:root {
-  --bg: #f4f5f7;
-  --surface: #ffffff;
-  --ink: #1b2430;
-  --muted: #52606f;
-  --rule: #d5dae1;
-  --accent: #1d4ed8;
-  --accent-ink: #ffffff;
-  --ok: #15803d;
-  --warn-bg: #fff6dc;
-  --warn-rule: #b7791f;
-  --bezel: #1b2430;
-  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Charter, "Bitstream Charter", Georgia, serif;
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+@font-face {
+  font-family: "Overpass";
+  src: url("fonts/overpass.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
 }
+
+:root {
+  --wall: #dfe6dd;
+  --wall-shade: #cfd8cd;
+  --paper: #f6f7f3;
+  --ink: #17231d;
+  --ink-soft: #4b5a52;
+  --line: #c3cdc2;
+  --sign: #1f4d3a;
+  --sign-ink: #f3f7f1;
+  --go: #15803d;
+  --go-ink: #ffffff;
+  --wood: #b08a5c;
+  --wood-dark: #8c6b43;
+  --floor: #a9a493;
+  --skirting: #f4f5f0;
+  --bezel: #14181a;
+  --warn-bg: #fbf1d3;
+  --warn-line: #b7791f;
+  --focus: #0b57d0;
+  --beam: rgba(255, 255, 255, 0.16);
+  --step: clamp(1rem, 0.95rem + 0.25vw, 1.125rem);
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #11161d;
-    --surface: #1a212b;
-    --ink: #e8ecf1;
-    --muted: #a3afbd;
-    --rule: #2f3947;
-    --accent: #7aa2ff;
-    --accent-ink: #0b1220;
-    --ok: #4ade80;
-    --warn-bg: #2a2314;
-    --warn-rule: #d9a441;
-    --bezel: #05080c;
+    --wall: #232c27;
+    --wall-shade: #1b231f;
+    --paper: #161c19;
+    --ink: #e9efe9;
+    --ink-soft: #a9b6ad;
+    --line: #38443d;
+    --sign: #d9e6dc;
+    --sign-ink: #17231d;
+    --go: #22a152;
+    --go-ink: #07140c;
+    --wood: #5f4a33;
+    --wood-dark: #4a3927;
+    --floor: #35332c;
+    --skirting: #4a5650;
+    --bezel: #060808;
+    --warn-bg: #332a12;
+    --warn-line: #d9a441;
+    --focus: #8ab4f8;
+    --beam: rgba(255, 255, 255, 0.035);
   }
 }
-*, *::before, *::after { box-sizing: border-box; }
+
+* { box-sizing: border-box; }
+
 html { -webkit-text-size-adjust: 100%; }
+
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--paper);
   color: var(--ink);
-  font: 1.0625rem/1.6 var(--sans);
+  font-family: "Overpass", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: var(--step);
+  line-height: 1.55;
 }
-a { color: var(--accent); text-underline-offset: 0.18em; }
-a:focus-visible, .btn:focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 3px;
-  border-radius: 4px;
-}
-code { font: 0.9em var(--mono); overflow-wrap: anywhere; }
-.wrap { max-width: 70rem; margin: 0 auto; padding: 0 1rem; }
-@media (min-width: 40rem) { .wrap { padding: 0 2rem; } }
 
-.skip { position: absolute; left: -999px; top: 0; background: var(--surface); padding: 0.5rem 1rem; z-index: 10; }
-.skip:focus { left: 0.5rem; top: 0.5rem; }
+img, svg { max-width: 100%; height: auto; display: block; }
 
-header.site { border-bottom: 1px solid var(--rule); }
-header.site .wrap { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; align-items: baseline; justify-content: space-between; padding-top: 1rem; padding-bottom: 1rem; }
-.mark { font: 700 1.05rem var(--serif); letter-spacing: 0.01em; color: var(--ink); text-decoration: none; }
-header.site nav { display: flex; gap: 1.25rem; font-size: 0.95rem; }
-header.site nav a { color: var(--muted); }
+a { color: inherit; text-underline-offset: 0.18em; }
 
-.hero { padding: 3rem 0 3.5rem; display: grid; gap: 2.5rem; }
-@media (min-width: 60rem) {
-  .hero { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); align-items: center; padding: 4.5rem 0 5rem; gap: 4rem; }
-}
-h1 { font: 700 clamp(2.1rem, 6vw, 3.4rem)/1.08 var(--serif); letter-spacing: -0.015em; margin: 0 0 1.25rem; }
-.lede { font-size: 1.2rem; color: var(--muted); max-width: 34rem; margin: 0 0 2rem; }
-.cta { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; align-items: center; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; border-radius: 4px; }
+
+.wrap { width: min(100% - 2.5rem, 68rem); margin-inline: auto; }
+
+h1, h2, h3 { line-height: 1.08; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(2.3rem, 1.3rem + 3.4vw, 3.9rem); font-weight: 800; }
+h2 { font-size: clamp(1.7rem, 1.2rem + 1.8vw, 2.5rem); font-weight: 750; }
+h3 { font-size: 1.15rem; font-weight: 700; line-height: 1.25; }
+p { margin: 0; }
+
 .btn {
-  display: inline-block; background: var(--accent); color: var(--accent-ink);
-  font-weight: 600; text-decoration: none; padding: 0.8rem 1.35rem; border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 3rem;
+  padding: 0.7rem 1.25rem;
+  border-radius: 0.6rem;
+  font-weight: 700;
+  text-decoration: none;
+  border: 2px solid transparent;
 }
-.btn:hover { filter: brightness(1.08); }
-.cta .alt { font-weight: 600; }
-.fineprint { margin: 1.25rem 0 0; font-size: 0.9rem; color: var(--muted); max-width: 32rem; }
+.btn-go { background: var(--go); color: var(--go-ink); }
+.btn-go:hover { filter: brightness(1.08); }
+.btn-plain { border-color: var(--ink); }
+.btn-plain:hover { background: var(--ink); color: var(--paper); }
+.btn svg { width: 1.5rem; height: 1.5rem; flex: none; }
+
+/* The wall */
+
+.scene {
+  position: relative;
+  background:
+    linear-gradient(100deg, transparent 0 55%, var(--beam) 55% 74%, transparent 74%),
+    linear-gradient(180deg, var(--wall), var(--wall-shade));
+  overflow: hidden;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 1.1rem;
+  font-weight: 700;
+}
+.topbar > span { white-space: nowrap; }
+.topbar nav { display: flex; gap: clamp(0.8rem, 3vw, 1.4rem); font-weight: 500; }
+.topbar a { text-decoration: none; }
+.topbar a:hover { text-decoration: underline; }
+
+.scene-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2.5rem;
+  padding-block: clamp(1.5rem, 4vw, 3.5rem) 0;
+  align-items: end;
+}
+
+.pitch { padding-bottom: clamp(2rem, 5vw, 4.5rem); max-width: 34rem; }
+.pitch p { margin-top: 1.25rem; font-size: 1.15em; color: var(--ink-soft); max-width: 30rem; }
+.pitch .actions { margin-top: 1.9rem; display: flex; flex-wrap: wrap; gap: 0.8rem; }
+.pitch .need { margin-top: 1.1rem; font-size: 0.9em; }
+
+.mounted { position: relative; justify-self: center; width: min(100%, 34rem); padding-bottom: 5.5rem; }
+
+.plaque {
+  width: max-content;
+  margin: 0 auto 1.1rem;
+  padding: 0.45rem 1.1rem 0.35rem;
+  background: var(--sign);
+  color: var(--sign-ink);
+  border-radius: 0.35rem;
+  font-weight: 800;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+  box-shadow: 3px 4px 0 rgba(0, 0, 0, 0.12);
+}
 
 .tablet {
-  margin: 0; background: var(--bezel); border-radius: 22px; padding: 14px;
-  box-shadow: 0 1px 0 var(--rule), 0 18px 40px -18px rgba(0, 0, 0, 0.45);
+  position: relative;
+  z-index: 1;
+  padding: clamp(0.5rem, 1.6vw, 0.9rem);
+  background: var(--bezel);
+  border-radius: clamp(0.9rem, 2.4vw, 1.5rem);
+  box-shadow: 10px 14px 0 -2px rgba(0, 0, 0, 0.13), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
 }
-.tablet img { display: block; width: 100%; height: auto; border-radius: 10px; }
+.tablet img { border-radius: clamp(0.3rem, 1vw, 0.6rem); width: 100%; }
 
-section { padding: 3rem 0; border-top: 1px solid var(--rule); }
-h2 { font: 700 clamp(1.5rem, 4vw, 2rem)/1.2 var(--serif); margin: 0 0 1.5rem; letter-spacing: -0.01em; }
-h3 { font: 700 1.05rem/1.3 var(--sans); margin: 0 0 0.35rem; }
-p { margin: 0 0 1rem; max-width: 42rem; }
-
-.does { display: grid; gap: 1.5rem 3rem; margin: 0; padding: 0; list-style: none; }
-@media (min-width: 40rem) { .does { grid-template-columns: 1fr 1fr; } }
-.does p { margin: 0; color: var(--muted); }
-
-.steps { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 1.75rem; max-width: 46rem; }
-.steps li { counter-increment: step; display: grid; grid-template-columns: 2.5rem 1fr; gap: 0 0.5rem; }
-.steps li::before { content: counter(step); font: 700 1.6rem/1.2 var(--serif); color: var(--accent); }
-.steps p { margin: 0; color: var(--muted); }
-
-.scroll { overflow-x: auto; margin: 0 0 1rem; }
-table { border-collapse: collapse; width: 100%; max-width: 46rem; font-size: 0.97rem; }
-th, td { text-align: left; padding: 0.6rem 0.75rem 0.6rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
-@media (max-width: 39.99rem) {
-  thead { position: absolute; left: -999px; }
-  tr, td { display: block; }
-  tr { padding: 0.6rem 0; border-bottom: 1px solid var(--rule); }
-  td { border: 0; padding: 0.1rem 0; }
-  td:nth-child(2)::before { content: "Obligatorio: "; color: var(--muted); }
+.tap {
+  position: absolute;
+  left: 80.5%;
+  top: 49.5%;
+  width: 3.2rem;
+  height: 3.2rem;
+  margin: -1.6rem 0 0 -1.6rem;
+  border-radius: 50%;
+  border: 3px solid var(--go);
+  opacity: 0;
+  animation: tap 1.5s ease-out 0.9s 2;
+  pointer-events: none;
 }
-th { font-weight: 600; color: var(--muted); font-size: 0.9rem; }
+@keyframes tap {
+  0% { transform: scale(0.35); opacity: 0.95; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
 
-.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin: 0 0 1.5rem; padding: 0; list-style: none; font-weight: 600; }
-.flow li { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 0.45rem 0.8rem; }
-.flow li.arrow { background: none; border: 0; padding: 0; color: var(--muted); font-weight: 400; }
+.cable {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 0.85rem;
+  height: 5.6rem;
+  margin-left: -0.42rem;
+  background: var(--skirting);
+  border-inline: 1px solid rgba(0, 0, 0, 0.14);
+}
 
-.limits { background: var(--warn-bg); border-left: 4px solid var(--warn-rule); padding: 1.25rem 1.25rem 0.5rem; margin: 1.75rem 0 0; max-width: 46rem; }
-.limits h3 { font-size: 1.1rem; margin-bottom: 0.75rem; }
-.limits ul { padding-left: 1.2rem; margin: 0 0 0.75rem; }
-.limits li { margin-bottom: 0.6rem; }
+.switch {
+  position: absolute;
+  right: -3.9rem;
+  top: 44%;
+  width: 2.3rem;
+  height: 3.4rem;
+  border-radius: 0.3rem;
+  background: var(--skirting);
+  box-shadow: 2px 3px 0 rgba(0, 0, 0, 0.12);
+  display: none;
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  inset: 0.75rem 0.7rem;
+  border-radius: 0.15rem;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+}
 
-.shots { display: grid; gap: 2rem; }
-@media (min-width: 48rem) { .shots { grid-template-columns: 1fr 1fr; } }
-.shots figure { margin: 0; }
-.shots img { display: block; width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 8px; }
-.shots figcaption { margin-top: 0.6rem; font-size: 0.95rem; color: var(--muted); }
+.door {
+  display: none;
+  position: absolute;
+  right: -2.5rem;
+  top: 4.5rem;
+  bottom: 0;
+  width: 9.5rem;
+  background: linear-gradient(90deg, var(--wood-dark) 0 0.9rem, var(--wood) 0.9rem);
+  border-top: 0.9rem solid var(--wood-dark);
+}
+.door::after {
+  content: "";
+  position: absolute;
+  left: 1.9rem;
+  top: 52%;
+  width: 0.75rem;
+  height: 2.6rem;
+  border-radius: 0.4rem;
+  background: #d9d6cd;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.2);
+}
 
-footer { border-top: 1px solid var(--rule); padding: 2rem 0 3rem; font-size: 0.93rem; color: var(--muted); }
+.floor { height: 2.6rem; background: var(--floor); border-top: 0.85rem solid var(--skirting); position: relative; z-index: 2; }
+
+@media (min-width: 56rem) {
+  .scene-grid { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 3rem; }
+  .mounted { justify-self: end; width: min(100% - 5.5rem, 31rem); margin-right: 5.5rem; }
+  .switch { display: block; }
+  .door { display: block; }
+}
+
+/* Sections */
+
+section { padding-block: clamp(3rem, 7vw, 5.5rem); }
+section + section { border-top: 1px solid var(--line); }
+.lede { margin-top: 0.9rem; color: var(--ink-soft); max-width: 40rem; }
+
+.works-with { padding-block: 2rem; }
+.works-with .wrap { display: grid; gap: 1.4rem 3rem; grid-template-columns: minmax(0, 1fr); }
+.brand { display: flex; align-items: center; gap: 1.1rem; }
+.brand .logo { flex: none; width: 7.5rem; display: flex; justify-content: flex-start; }
+.brand .logo svg { height: 2rem; width: auto; }
+.brand p { color: var(--ink-soft); max-width: 24rem; }
+.brand strong { color: var(--ink); }
+.cf-word { display: flex; align-items: center; gap: 0.45rem; font-weight: 800; font-size: 1.05rem; }
+.cf-word svg { height: 1.7rem; width: auto; }
+@media (min-width: 48rem) { .works-with .wrap { grid-template-columns: 1fr 1fr; } }
+
+.tour { display: grid; gap: 2.5rem; grid-template-columns: minmax(0, 1fr); margin-top: 2.2rem; align-items: start; }
+.shot { position: relative; margin: 0; border: 1px solid var(--line); border-radius: 0.8rem; overflow: hidden; background: #f3f4f6; }
+.pin {
+  position: absolute;
+  width: 1.9rem;
+  height: 1.9rem;
+  margin: -0.95rem 0 0 -0.95rem;
+  border-radius: 50%;
+  background: var(--sign);
+  color: var(--sign-ink);
+  font-weight: 800;
+  font-size: 0.95rem;
+  display: grid;
+  place-items: center;
+  padding-top: 0.12rem;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85);
+}
+.legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 1.5rem; counter-reset: pin; }
+.legend li { display: grid; grid-template-columns: 1.9rem minmax(0, 1fr); gap: 0.2rem 0.9rem; counter-increment: pin; }
+.legend li::before {
+  content: counter(pin);
+  grid-row: span 2;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 50%;
+  background: var(--sign);
+  color: var(--sign-ink);
+  font-weight: 800;
+  font-size: 0.95rem;
+  display: grid;
+  place-items: center;
+  padding-top: 0.12rem;
+}
+.legend p { color: var(--ink-soft); grid-column: 2; }
+@media (min-width: 56rem) { .tour { grid-template-columns: 1.25fr 1fr; gap: 3.5rem; } }
+
+.steps { list-style: none; margin: 2.2rem 0 0; padding: 0; display: grid; gap: 2rem; counter-reset: step; }
+.steps li { counter-increment: step; padding-top: 1rem; border-top: 3px solid var(--ink); }
+.steps li::before { content: counter(step); display: block; font-size: 2.6rem; font-weight: 800; line-height: 1; margin-bottom: 0.5rem; }
+.steps p { margin-top: 0.45rem; color: var(--ink-soft); }
+@media (min-width: 48rem) { .steps { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.after-steps { margin-top: 2.2rem; }
+
+table { width: 100%; border-collapse: collapse; margin-top: 1.2rem; max-width: 46rem; }
+caption { text-align: left; font-weight: 700; font-size: 1.15rem; padding-bottom: 0.4rem; }
+th, td { text-align: left; padding: 0.7rem 0.9rem 0.6rem 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 700; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; overflow-wrap: anywhere; }
+@media (max-width: 40rem) {
+  thead { position: absolute; left: -999rem; }
+  tr { display: block; padding-block: 0.7rem; border-bottom: 1px solid var(--line); }
+  td { display: block; border: 0; padding: 0.1rem 0; }
+}
+
+.route { margin-top: 2.2rem; display: grid; gap: 0.9rem; grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+.stop { border: 2px solid var(--ink); border-radius: 0.8rem; padding: 1.1rem 1.2rem; background: var(--paper); }
+.stop .who { display: flex; align-items: center; gap: 0.6rem; min-height: 2.2rem; font-weight: 800; font-size: 1.1rem; }
+.stop .who svg { height: 1.6rem; width: auto; flex: none; }
+.stop p { margin-top: 0.5rem; color: var(--ink-soft); font-size: 0.95em; }
+.leg { align-self: center; justify-self: center; font-weight: 700; font-size: 0.9em; color: var(--ink-soft); text-align: center; }
+.leg::after { content: ""; display: block; width: 2px; height: 1.6rem; margin: 0.3rem auto 0; background: var(--ink); }
+@media (min-width: 56rem) {
+  .route { grid-template-columns: 1fr auto 1fr auto 1fr; }
+  .leg { max-width: 8.5rem; }
+  .leg::after { width: 100%; height: 2px; margin: 0.4rem 0 0; }
+}
+.budget { margin-top: 1.8rem; max-width: 44rem; color: var(--ink-soft); }
+
+.honest { display: grid; gap: 2rem; grid-template-columns: minmax(0, 1fr); margin-top: 2rem; }
+.honest ul { margin: 0.8rem 0 0; padding-left: 1.1rem; display: grid; gap: 0.6rem; }
+.does li { color: var(--ink-soft); }
+.limits { background: var(--warn-bg); border-left: 5px solid var(--warn-line); padding: 1.4rem 1.5rem; border-radius: 0 0.6rem 0.6rem 0; }
+@media (min-width: 56rem) { .honest { grid-template-columns: 1fr 1fr; gap: 3rem; } }
+
+.pair { display: grid; gap: 2rem; grid-template-columns: minmax(0, 1fr); margin-top: 2.2rem; }
+.pair figure { margin: 0; }
+.pair img { border: 1px solid var(--line); border-radius: 0.8rem; background: #f3f4f6; }
+.pair figcaption { margin-top: 0.7rem; color: var(--ink-soft); font-size: 0.95em; }
+@media (min-width: 48rem) { .pair { grid-template-columns: 1fr 1fr; } }
+
+.close { text-align: left; }
+.close .actions { margin-top: 1.6rem; display: flex; flex-wrap: wrap; gap: 0.8rem; }
+
+footer { border-top: 1px solid var(--line); padding-block: 2rem 3rem; color: var(--ink-soft); font-size: 0.92em; }
+footer p + p { margin-top: 0.6rem; }
 footer p { max-width: 46rem; }
+
+@media (prefers-reduced-motion: reduce) { .tap { animation: none; } }
 </style>
 </head>
 <body>
-<a class="skip" href="#contenido">Saltar al contenido</a>
 
-<header class="site">
+<header class="scene">
   <div class="wrap">
-    <a class="mark" href="#top">Holded Kiosk</a>
-    <nav aria-label="Principal">
-      <a href="#despliegue">Despliegue</a>
-      <a href="#seguridad">Seguridad y límites</a>
-      <a href="https://github.com/rubengargar/holdedkiosk">GitHub</a>
-    </nav>
+    <div class="topbar">
+      <span>Holded Kiosk</span>
+      <nav aria-label="Secciones">
+        <a href="#despliegue">Despliegue</a>
+        <a href="#seguridad">Seguridad</a>
+        <a href="https://github.com/rubengargar/holdedkiosk">GitHub</a>
+      </nav>
+    </div>
+
+    <div class="scene-grid">
+      <div class="pitch">
+        <h1>Una tablet en la pared para fichar en Holded</h1>
+        <p>Se cuelga junto a la puerta de la oficina. Cada persona toca su nombre al entrar, al salir o al parar a comer, y el fichaje queda registrado en Holded.</p>
+        <div class="actions">
+          <a class="btn btn-go" href="https://deploy.workers.cloudflare.com/?url=https://github.com/rubengargar/holdedkiosk">Desplegar en Cloudflare</a>
+          <a class="btn btn-plain" href="https://github.com/rubengargar/holdedkiosk">Ver el código</a>
+        </div>
+        <p class="need">Código abierto, licencia MIT. Se instala en tu propia cuenta de Cloudflare.</p>
+      </div>
+
+      <div class="mounted">
+        <div class="plaque" aria-hidden="true">Ficha aquí</div>
+        <div class="switch" aria-hidden="true"></div>
+        <div class="tablet">
+          <img src="img/board.png" width="820" height="640" alt="La pantalla del kiosko: lista de empleados con el tiempo trabajado hoy y botones de Entrada, Pausa, Reanudar y Salida.">
+          <span class="tap" aria-hidden="true"></span>
+        </div>
+        <div class="cable" aria-hidden="true"></div>
+      </div>
+    </div>
   </div>
+  <div class="door" aria-hidden="true"></div>
+  <div class="floor" aria-hidden="true"></div>
 </header>
 
-<main id="contenido">
-  <div class="wrap" id="top">
-    <div class="hero">
-      <div>
-        <h1>Un kiosko de fichaje para Holded</h1>
-        <p class="lede">Una tablet compartida en la oficina. Cada persona toca su nombre para fichar entrada, salida, pausa o reanudar. Lo despliegas en tu propia cuenta de Cloudflare.</p>
-        <div class="cta">
-          <a class="btn" href="https://deploy.workers.cloudflare.com/?url=https://github.com/rubengargar/holdedkiosk">Desplegar en Cloudflare</a>
-          <a class="alt" href="https://github.com/rubengargar/holdedkiosk">Ver el código en GitHub</a>
-        </div>
-        <p class="fineprint">Código abierto, licencia MIT. Necesitas una cuenta de Cloudflare, una de GitHub y una clave de API de Holded.</p>
-      </div>
-      <figure class="tablet">
-        <img src="img/board.png" width="820" height="640" alt="Tablero del kiosko: cuatro empleados con su tiempo de hoy y los botones Entrada, Pausa, Reanudar y Salida. Arriba, el resumen Todo 4, Dentro 2, Fuera 2.">
-      </figure>
+<main>
+
+<section class="works-with" aria-label="Con qué funciona">
+  <div class="wrap">
+    <div class="brand">
+      <span class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="17.9 10.9 106.7 28.5" fill="none" role="img" aria-label="Holded"><path d="M32.6624 22.5578L23.6866 11.9937C23.5707 11.8618 23.5169 11.7216 23.5169 11.569C23.5169 11.4 23.579 11.2598 23.7032 11.1567C23.8232 11.0536 23.9887 11 24.1997 11H32.5755C32.9396 11 33.2334 11.1319 33.461 11.3958L37.8765 16.447C37.9924 16.5995 38.0544 16.7975 38.0627 17.0449C38.071 17.2923 38.0089 17.4902 37.8765 17.6427L33.5728 22.4712C33.461 22.6073 33.3079 22.6856 33.1176 22.7145C32.9272 22.7433 32.7782 22.6897 32.6624 22.5578Z" fill="#FF5454"></path><path d="M27.5641 28.2934L18.1869 17.4737C18.0545 17.3211 17.9925 17.1232 18.0007 16.8799C18.0131 16.6325 18.0835 16.4346 18.2159 16.282L21.2368 12.7607C21.3899 12.5916 21.5513 12.505 21.721 12.505C21.9279 12.505 22.1017 12.5916 22.2341 12.7607L31.6692 23.836C31.7809 23.968 31.8389 24.1082 31.8389 24.2484C31.8389 24.3927 31.7851 24.5288 31.6692 24.6607L28.4786 28.2934C28.3628 28.446 28.2179 28.5202 28.0359 28.5202C27.8538 28.5202 27.6965 28.446 27.5641 28.2934Z" fill="#FF5454"></path><g clip-path="url(#holded-visma-logo-clip)"><path d="M117.03 25.5925C116.328 25.5925 115.708 25.4232 115.167 25.0803C114.626 24.7375 114.2 24.2708 113.886 23.6719C113.573 23.073 113.416 22.3956 113.416 21.6398C113.416 20.8798 113.573 20.2065 113.886 19.62C114.2 19.0335 114.626 18.5792 115.167 18.2529C115.708 17.9307 116.328 17.7696 117.03 17.7696C118.071 17.7696 118.938 18.129 119.632 18.8518C120.326 19.5746 120.669 20.4998 120.669 21.6398C120.669 22.3791 120.512 23.0523 120.198 23.6595C119.884 24.2667 119.45 24.7416 118.888 25.0803C118.335 25.419 117.711 25.5925 117.03 25.5925ZM102.127 28.6903C103.358 28.6903 104.482 28.4135 105.498 27.8642C106.514 27.3148 107.311 26.5673 107.902 25.6173C108.017 25.4479 107.968 25.3034 107.761 25.1919L105.428 23.9693C105.238 23.8743 105.085 23.9238 104.973 24.1097C104.746 24.5475 104.37 24.8986 103.85 25.1629C103.329 25.4273 102.772 25.5595 102.185 25.5595C101.144 25.5595 100.285 25.1919 99.612 24.4484C98.9388 23.7091 98.6042 22.7591 98.6042 21.6026C98.6042 20.4254 98.947 19.4837 99.6285 18.7733C100.31 18.0629 101.165 17.7077 102.189 17.7077C102.892 17.7077 103.511 17.8729 104.052 18.2074C104.593 18.5379 104.99 18.9757 105.246 19.5168C105.502 20.0578 105.572 20.6402 105.461 21.268L105.601 20.442H98.121L98.5175 22.8871H108.443C108.649 22.8871 108.773 22.7839 108.81 22.5732C108.831 22.2304 108.847 21.8917 108.868 21.5489C108.868 20.2809 108.587 19.1079 108.03 18.0381C107.472 16.9683 106.683 16.1216 105.667 15.5062C104.651 14.8908 103.474 14.581 102.127 14.581C100.802 14.581 99.5955 14.8949 98.5134 15.5186C97.4312 16.1464 96.5886 16.9973 95.9814 18.0794C95.3743 19.1616 95.0728 20.347 95.0728 21.6356C95.0728 22.9821 95.3702 24.1964 95.9691 25.2745C96.568 26.3566 97.4023 27.1951 98.4721 27.7898C99.5418 28.3929 100.76 28.6903 102.127 28.6903ZM85.6308 28.7192C86.3495 28.7192 87.0186 28.5953 87.634 28.3474C88.2495 28.0996 88.7492 27.7981 89.1292 27.4388C89.5092 27.0794 89.7446 26.7449 89.8396 26.4433V28.0666C89.8396 28.1616 89.8727 28.2442 89.9388 28.3103C90.0049 28.3763 90.0875 28.4094 90.1825 28.4094H93.082C93.177 28.4094 93.2554 28.3763 93.3256 28.3103C93.3917 28.2442 93.4248 28.1616 93.4248 28.0666V11.3428C93.4248 11.2478 93.3917 11.1693 93.3256 11.0991C93.2596 11.033 93.177 11 93.082 11H90.1825C90.0875 11 90.0049 11.033 89.9388 11.0991C89.8727 11.1652 89.8396 11.2478 89.8396 11.3428V16.6586C89.7446 16.4521 89.5009 16.1794 89.1127 15.849C88.7244 15.5186 88.2329 15.2253 87.634 14.9693C87.0351 14.7132 86.3784 14.5851 85.6556 14.5851C84.4248 14.5851 83.3096 14.8949 82.3142 15.5103C81.3187 16.1258 80.5298 16.9725 79.9516 18.0422C79.3734 19.112 79.0842 20.3139 79.0842 21.6398C79.0842 22.9656 79.3734 24.1717 79.9516 25.2538C80.5298 26.336 81.3229 27.1827 82.3265 27.7981C83.3343 28.4094 84.4371 28.7192 85.6308 28.7192ZM86.2008 25.5925C85.5193 25.5925 84.8997 25.4232 84.3504 25.0803C83.8011 24.7375 83.3674 24.2708 83.0576 23.6719C82.7437 23.073 82.5868 22.3956 82.5868 21.6398C82.5868 20.8798 82.7437 20.2065 83.0576 19.62C83.3715 19.0335 83.8011 18.5792 84.3504 18.2529C84.8997 17.9307 85.5152 17.7696 86.2008 17.7696C87.2417 17.7696 88.109 18.129 88.8029 18.8518C89.4968 19.5746 89.8396 20.4998 89.8396 21.6398C89.8396 22.3791 89.6827 23.0523 89.3688 23.6595C89.0549 24.2667 88.6212 24.7416 88.0595 25.0803C87.5019 25.419 86.8823 25.5925 86.2008 25.5925ZM74.2517 28.4053H77.1512C77.2462 28.4053 77.3247 28.3722 77.3949 28.3061C77.461 28.24 77.494 28.1574 77.494 28.0624V11.3428C77.494 11.2478 77.461 11.1693 77.3949 11.0991C77.3288 11.033 77.2462 11 77.1512 11H74.2517C74.1567 11 74.0783 11.033 74.008 11.0991C73.942 11.1652 73.9089 11.2478 73.9089 11.3428V28.0666C73.9089 28.1616 73.942 28.2442 74.008 28.3103C74.0783 28.3722 74.1567 28.4053 74.2517 28.4053ZM65.0948 25.5347C64.0333 25.5347 63.1452 25.1795 62.4348 24.469C61.7244 23.7586 61.3692 22.8252 61.3692 21.6687C61.3692 20.5122 61.7244 19.5746 62.4348 18.8518C63.1452 18.1331 64.0333 17.7696 65.0948 17.7696C66.1563 17.7696 67.0443 18.129 67.7547 18.8518C68.4651 19.5746 68.8203 20.5122 68.8203 21.6687C68.8203 22.8252 68.4692 23.7586 67.7671 24.469C67.0691 25.1795 66.1769 25.5347 65.0948 25.5347ZM65.0948 28.7192C66.4784 28.7192 67.7217 28.4053 68.8203 27.7816C69.919 27.1538 70.7781 26.307 71.3935 25.2373C72.009 24.1675 72.3187 22.978 72.3187 21.6687C72.3187 20.3594 72.009 19.1657 71.3935 18.0835C70.7781 17.0014 69.919 16.1505 68.8203 15.5227C67.7217 14.899 66.4784 14.5851 65.0948 14.5851C63.7111 14.5851 62.4679 14.899 61.3692 15.5227C60.2705 16.1505 59.4114 17.0014 58.796 18.0835C58.1806 19.1657 57.8708 20.3594 57.8708 21.6687C57.8708 22.978 58.1806 24.1675 58.796 25.2373C59.4114 26.307 60.2705 27.1579 61.3692 27.7816C62.4679 28.4053 63.7111 28.7192 65.0948 28.7192ZM43.8772 28.4053H46.7767C46.8717 28.4053 46.9502 28.3722 47.0204 28.3061C47.0865 28.24 47.1195 28.1574 47.1195 28.0624V21.1524C47.1195 20.1281 47.3921 19.3144 47.9456 18.7072C48.4949 18.1001 49.2053 17.7985 50.0768 17.7985C50.8905 17.7985 51.5348 18.0629 52.0098 18.5957C52.4848 19.1285 52.7203 19.8761 52.7203 20.8426V28.0666C52.7203 28.1616 52.7533 28.2442 52.8194 28.3103C52.8855 28.3763 52.9639 28.4094 53.0631 28.4094H55.9626C56.0576 28.4094 56.136 28.3763 56.2063 28.3103C56.2723 28.2442 56.3054 28.1616 56.3054 28.0666V20.2726C56.3054 18.8146 56.0245 17.6622 55.4669 16.8155C54.9093 15.9729 54.2443 15.3906 53.4761 15.0684C52.7079 14.7462 51.9561 14.5851 51.2168 14.5851C50.3081 14.5851 49.4697 14.7627 48.7014 15.1097C47.9332 15.4608 47.4086 15.911 47.1236 16.4603V11.3428C47.1236 11.2478 47.0906 11.1693 47.0245 11.0991C46.9584 11.033 46.8758 11 46.7808 11H43.8813C43.7863 11 43.7078 11.033 43.6376 11.0991C43.5715 11.1652 43.5385 11.2478 43.5385 11.3428V28.0666C43.5385 28.1616 43.5715 28.2442 43.6376 28.3103C43.7037 28.3722 43.7822 28.4053 43.8772 28.4053ZM116.46 28.7192C117.178 28.7192 117.847 28.5953 118.463 28.3474C119.078 28.0996 119.578 27.7981 119.958 27.4388C120.338 27.0794 120.574 26.7449 120.669 26.4433V28.0666C120.669 28.1616 120.702 28.2442 120.768 28.3103C120.834 28.3763 120.912 28.4094 121.011 28.4094H123.911C124.006 28.4094 124.084 28.3763 124.155 28.3103C124.221 28.2442 124.254 28.1616 124.254 28.0666V11.3428C124.254 11.2478 124.221 11.1693 124.155 11.0991C124.088 11.033 124.006 11 123.911 11H121.011C120.916 11 120.834 11.033 120.768 11.0991C120.702 11.1652 120.669 11.2478 120.669 11.3428V16.6586C120.574 16.4521 120.33 16.1794 119.942 15.849C119.553 15.5186 119.062 15.2253 118.463 14.9693C117.864 14.7132 117.207 14.5851 116.484 14.5851C115.254 14.5851 114.138 14.8949 113.143 15.5103C112.148 16.1258 111.359 16.9725 110.785 18.0422C110.206 19.112 109.917 20.3139 109.917 21.6398C109.917 22.9656 110.206 24.1717 110.785 25.2538C111.363 26.336 112.156 27.1827 113.16 27.7981C114.167 28.4094 115.266 28.7192 116.46 28.7192Z" fill="currentColor"></path></g><path d="M94.4067 37.9409V33.3577H95.2168V35.072H95.2504C95.2922 34.9884 95.3511 34.8996 95.4272 34.8056C95.5033 34.7102 95.6062 34.6289 95.736 34.5617C95.8658 34.4931 96.0314 34.4588 96.2328 34.4588C96.4984 34.4588 96.7378 34.5267 96.9512 34.6624C97.166 34.7967 97.3361 34.9959 97.4614 35.2599C97.5882 35.5225 97.6516 35.8448 97.6516 36.2267C97.6516 36.6042 97.5897 36.9249 97.4659 37.189C97.3421 37.4531 97.1735 37.6545 96.9601 37.7932C96.7468 37.932 96.5051 38.0013 96.2351 38.0013C96.0381 38.0013 95.8748 37.9685 95.745 37.9029C95.6152 37.8372 95.5107 37.7582 95.4317 37.6657C95.3541 37.5717 95.2937 37.4829 95.2504 37.3994H95.2034V37.9409H94.4067ZM95.2012 36.2222C95.2012 36.4445 95.2325 36.6392 95.2951 36.8063C95.3593 36.9734 95.4511 37.1039 95.5704 37.1979C95.6913 37.2904 95.8375 37.3367 96.009 37.3367C96.1881 37.3367 96.338 37.2889 96.4588 37.1935C96.5797 37.0965 96.6707 36.9645 96.7319 36.7974C96.7945 36.6288 96.8259 36.4371 96.8259 36.2222C96.8259 36.0089 96.7953 35.8194 96.7341 35.6538C96.6729 35.4882 96.5819 35.3584 96.4611 35.2644C96.3402 35.1704 96.1896 35.1234 96.009 35.1234C95.836 35.1234 95.689 35.1689 95.5682 35.2599C95.4473 35.3509 95.3556 35.4785 95.2929 35.6426C95.2317 35.8067 95.2012 35.9999 95.2012 36.2222ZM98.3803 39.2299C98.2699 39.2299 98.1677 39.221 98.0737 39.2031C97.9812 39.1867 97.9074 39.1673 97.8522 39.1449L98.0402 38.5138C98.158 38.5481 98.2632 38.5645 98.3557 38.563C98.4482 38.5616 98.5295 38.5325 98.5997 38.4758C98.6713 38.4206 98.7317 38.3281 98.7809 38.1983L98.8503 38.0125L97.6038 34.5035H98.4631L99.2554 37.0995H99.2912L100.086 34.5035H100.947L99.5709 38.3572C99.5067 38.5392 99.4217 38.6951 99.3158 38.8249C99.2098 38.9562 99.08 39.0561 98.9264 39.1248C98.7742 39.1949 98.5922 39.2299 98.3803 39.2299Z" fill="currentColor"></path><path d="M103.274 32.7621L104.637 36.8849H104.691L106.052 32.7621H107.095L105.249 38H104.077L102.233 32.7621H103.274ZM108.482 32.7621V38H107.533V32.7621H108.482ZM112.104 34.202C112.08 33.9786 111.979 33.8047 111.802 33.6802C111.627 33.5558 111.398 33.4935 111.117 33.4935C110.919 33.4935 110.749 33.5234 110.608 33.5831C110.466 33.6427 110.358 33.7237 110.283 33.826C110.208 33.9283 110.17 34.0451 110.168 34.1764C110.168 34.2855 110.193 34.3802 110.242 34.4603C110.293 34.5404 110.362 34.6086 110.449 34.6649C110.536 34.7195 110.632 34.7655 110.738 34.803C110.844 34.8405 110.95 34.8721 111.058 34.8977L111.549 35.0204C111.747 35.0665 111.937 35.1287 112.119 35.2071C112.303 35.2856 112.468 35.3844 112.613 35.5038C112.76 35.6232 112.875 35.7672 112.961 35.936C113.046 36.1048 113.089 36.3026 113.089 36.5294C113.089 36.8363 113.01 37.1066 112.853 37.3401C112.696 37.572 112.47 37.7536 112.173 37.8849C111.878 38.0145 111.521 38.0793 111.101 38.0793C110.694 38.0793 110.34 38.0162 110.04 37.89C109.742 37.7639 109.508 37.5797 109.339 37.3376C109.172 37.0955 109.082 36.8005 109.068 36.4527H110.002C110.015 36.6351 110.072 36.7869 110.17 36.9079C110.269 37.029 110.398 37.1193 110.557 37.179C110.717 37.2387 110.896 37.2685 111.094 37.2685C111.3 37.2685 111.481 37.2378 111.636 37.1765C111.793 37.1134 111.916 37.0264 112.004 36.9156C112.093 36.8031 112.138 36.6718 112.14 36.5217C112.138 36.3853 112.098 36.2728 112.02 36.1841C111.941 36.0937 111.831 36.0187 111.69 35.9591C111.55 35.8977 111.386 35.8431 111.199 35.7954L110.603 35.6419C110.171 35.5311 109.83 35.3631 109.58 35.1381C109.331 34.9113 109.206 34.6104 109.206 34.2352C109.206 33.9266 109.29 33.6564 109.457 33.4245C109.626 33.1926 109.855 33.0127 110.145 32.8848C110.435 32.7553 110.763 32.6905 111.13 32.6905C111.501 32.6905 111.827 32.7553 112.107 32.8848C112.388 33.0127 112.609 33.1909 112.769 33.4194C112.929 33.6461 113.012 33.907 113.017 34.202H112.104ZM113.682 32.7621H114.844L116.399 36.5575H116.46L118.015 32.7621H119.176V38H118.266V34.4015H118.217L116.769 37.9847H116.089L114.642 34.3938H114.593V38H113.682V32.7621ZM120.63 38H119.617L121.461 32.7621H122.633L124.479 38H123.466L122.067 33.8363H122.026L120.63 38ZM120.663 35.9463H123.425V36.7084H120.663V35.9463Z" fill="currentColor"></path><defs><clipPath id="holded-visma-logo-clip"><rect width="80.7129" height="17.7321" fill="white" transform="translate(43.5385 11)"></rect></clipPath></defs></svg></span>
+      <p><strong>Los fichajes viven en tu Holded.</strong> El kiosko usa la API oficial con una clave que tú creas y puedes revocar.</p>
+    </div>
+    <div class="brand">
+      <span class="logo"><span class="cf-word"><svg fill="#F38020" aria-hidden="true" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M16.5088 16.8447c.1475-.5068.0908-.9707-.1553-1.3154-.2246-.3164-.6045-.499-1.0615-.5205l-8.6592-.1123a.1559.1559 0 0 1-.1333-.0713c-.0283-.042-.0351-.0986-.021-.1553.0278-.084.1123-.1484.2036-.1562l8.7359-.1123c1.0351-.0489 2.1601-.8868 2.5537-1.9136l.499-1.3013c.0215-.0561.0293-.1128.0147-.168-.5625-2.5463-2.835-4.4453-5.5499-4.4453-2.5039 0-4.6284 1.6177-5.3876 3.8614-.4927-.3658-1.1187-.5625-1.794-.499-1.2026.119-2.1665 1.083-2.2861 2.2856-.0283.31-.0069.6128.0635.894C1.5683 13.171 0 14.7754 0 16.752c0 .1748.0142.3515.0352.5273.0141.083.0844.1475.1689.1475h15.9814c.0909 0 .1758-.0645.2032-.1553l.12-.4268zm2.7568-5.5634c-.0771 0-.1611 0-.2383.0112-.0566 0-.1054.0415-.127.0976l-.3378 1.1744c-.1475.5068-.0918.9707.1543 1.3164.2256.3164.6055.498 1.0625.5195l1.8437.1133c.0557 0 .1055.0263.1329.0703.0283.043.0351.1074.0214.1562-.0283.084-.1132.1485-.204.1553l-1.921.1123c-1.041.0488-2.1582.8867-2.5527 1.914l-.1406.3585c-.0283.0713.0215.1416.0986.1416h6.5977c.0771 0 .1474-.0489.169-.126.1122-.4082.1757-.837.1757-1.2803 0-2.6025-2.125-4.727-4.7344-4.727"/></svg>Cloudflare</span></span>
+      <p><strong>Se ejecuta en tu Cloudflare.</strong> Un Worker en tu cuenta sirve la pantalla y habla con Holded. El plan gratuito basta para una oficina.</p>
     </div>
   </div>
+</section>
 
-  <section aria-labelledby="que-hace">
-    <div class="wrap">
-      <h2 id="que-hace">Qué hace</h2>
-      <ul class="does">
-        <li>
-          <h3>Ficha en Holded</h3>
-          <p>Entrada, salida, pausa y reanudar por empleado, con el tiempo trabajado hoy en cada fila.</p>
-        </li>
-        <li>
-          <h3>Varias empresas en una tablet</h3>
-          <p>Cada empresa de Holded tiene su lista de empleados, sus empleados ocultos y su logo. Se cambia de una a otra con un toque.</p>
-        </li>
-        <li>
-          <h3>Solo a quien corresponde</h3>
-          <p>Lista a los empleados con contrato vigente y sin fecha de baja. Puedes ocultar a quien no deba aparecer.</p>
-        </li>
-        <li>
-          <h3>Pensado para pantallas táctiles</h3>
-          <p>Búsqueda por nombre, resumen de quién está dentro y fuera, y un diseño que se adapta a un iPad Mini.</p>
-        </li>
-      </ul>
-    </div>
-  </section>
-
-  <section id="despliegue" aria-labelledby="despliegue-t">
-    <div class="wrap">
-      <h2 id="despliegue-t">Despliegue en tres pasos</h2>
-      <ol class="steps">
-        <li>
-          <div>
-            <h3>Pulsa el botón de despliegue</h3>
-            <p>Clona el repositorio en tu GitHub y despliega un Worker en tu cuenta de Cloudflare. Nada pasa por la infraestructura del autor.</p>
-          </div>
-        </li>
-        <li>
-          <div>
-            <h3>Crea una clave de API en Holded</h3>
-            <p>Con los permisos de la tabla de abajo. Mejor una clave dedicada al kiosko.</p>
-          </div>
-        </li>
-        <li>
-          <div>
-            <h3>Abre el kiosko y añade la empresa</h3>
-            <p>Abre la URL del Worker en la tablet, pulsa el engranaje y pega la clave. El kiosko la valida cargando la lista de empleados.</p>
-          </div>
-        </li>
+<section>
+  <div class="wrap">
+    <h2>Lo que se ve en la pantalla</h2>
+    <p class="lede">Una sola vista, pensada para tocarla de pie y seguir andando.</p>
+    <div class="tour">
+      <figure class="shot">
+        <img src="img/board.png" width="820" height="640" alt="" loading="lazy">
+        <span class="pin" style="left:25%;top:5.6%" aria-hidden="true">1</span>
+        <span class="pin" style="left:50%;top:29%" aria-hidden="true">2</span>
+        <span class="pin" style="left:69.5%;top:60.5%" aria-hidden="true">3</span>
+        <span class="pin" style="left:92%;top:49.5%" aria-hidden="true">4</span>
+      </figure>
+      <ol class="legend">
+        <li><h3>Varias empresas en la misma tablet</h3><p>Si compartís oficina, cada empresa tiene su círculo con su logo. Un toque cambia de plantilla.</p></li>
+        <li><h3>Quién está dentro y quién fuera</h3><p>El recuento se actualiza solo cada dos minutos, también con los fichajes hechos desde el móvil.</p></li>
+        <li><h3>Tiempo trabajado hoy</h3><p>Cada fila muestra las horas del día y avanza minuto a minuto mientras la persona está fichada.</p></li>
+        <li><h3>Entrada, pausa, reanudar y salida</h3><p>Botones grandes por persona. Cada toque es un único fichaje en Holded.</p></li>
       </ol>
-      <p style="margin-top:2rem"><a class="btn" href="https://deploy.workers.cloudflare.com/?url=https://github.com/rubengargar/holdedkiosk">Desplegar en Cloudflare</a></p>
+    </div>
+  </div>
+</section>
 
-      <h3 style="margin-top:2.5rem">Permisos de la clave</h3>
-      <div class="scroll">
-        <table>
-          <thead><tr><th scope="col">Permiso</th><th scope="col">Obligatorio</th><th scope="col">Para qué</th></tr></thead>
-          <tbody>
-            <tr><td><code>team:employees.read</code></td><td>Sí</td><td>Listar empleados</td></tr>
-            <tr><td><code>team:time-tracking.read</code></td><td>Sí</td><td>Leer los fichajes del día</td></tr>
-            <tr><td><code>team:time-tracking.write</code></td><td>Sí</td><td>Fichar entrada, salida y pausas</td></tr>
-            <tr><td><code>account:info.read</code></td><td>No</td><td>Nombre y logo de la empresa. Sin él se muestran las iniciales</td></tr>
-          </tbody>
-        </table>
+<section id="despliegue">
+  <div class="wrap">
+    <h2>De cero a colgada en la pared</h2>
+    <p class="lede">Necesitas una cuenta de Cloudflare, una de GitHub y acceso de administrador a Holded.</p>
+    <ol class="steps">
+      <li><h3>Pulsa «Desplegar en Cloudflare»</h3><p>Cloudflare copia el código a tu GitHub y publica el kiosko en tu cuenta, con tu propia dirección. Nada pasa por la infraestructura del autor.</p></li>
+      <li><h3>Crea una clave de API en Holded</h3><p>Con los permisos de la tabla de abajo y nada más. Mejor una clave dedicada al kiosko.</p></li>
+      <li><h3>Abre el kiosko en la tablet</h3><p>Pega la clave una vez. El nombre y el logo de la empresa se cargan solos, y aparece la plantilla.</p></li>
+    </ol>
+    <p class="after-steps"><a class="btn btn-go" href="https://deploy.workers.cloudflare.com/?url=https://github.com/rubengargar/holdedkiosk">Desplegar en Cloudflare</a></p>
+
+    <table>
+      <caption>Permisos de la clave de Holded</caption>
+      <thead><tr><th scope="col">Permiso</th><th scope="col">Obligatorio</th><th scope="col">Para qué</th></tr></thead>
+      <tbody>
+        <tr><td><code>team:employees.read</code></td><td>Sí</td><td>Listar a los empleados en activo</td></tr>
+        <tr><td><code>team:time-tracking.read</code></td><td>Sí</td><td>Leer los fichajes del día</td></tr>
+        <tr><td><code>team:time-tracking.write</code></td><td>Sí</td><td>Fichar entrada, salida y pausas</td></tr>
+        <tr><td><code>account:info.read</code></td><td>No</td><td>Nombre y logo de la empresa. Sin él se muestran las iniciales</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>El camino de un fichaje</h2>
+    <div class="route">
+      <div class="stop">
+        <div class="who">La tablet</div>
+        <p>Muestra nombres y botones. No guarda fichajes ni datos de empleados.</p>
+      </div>
+      <div class="leg">un toque</div>
+      <div class="stop">
+        <div class="who"><svg fill="#F38020" aria-hidden="true" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M16.5088 16.8447c.1475-.5068.0908-.9707-.1553-1.3154-.2246-.3164-.6045-.499-1.0615-.5205l-8.6592-.1123a.1559.1559 0 0 1-.1333-.0713c-.0283-.042-.0351-.0986-.021-.1553.0278-.084.1123-.1484.2036-.1562l8.7359-.1123c1.0351-.0489 2.1601-.8868 2.5537-1.9136l.499-1.3013c.0215-.0561.0293-.1128.0147-.168-.5625-2.5463-2.835-4.4453-5.5499-4.4453-2.5039 0-4.6284 1.6177-5.3876 3.8614-.4927-.3658-1.1187-.5625-1.794-.499-1.2026.119-2.1665 1.083-2.2861 2.2856-.0283.31-.0069.6128.0635.894C1.5683 13.171 0 14.7754 0 16.752c0 .1748.0142.3515.0352.5273.0141.083.0844.1475.1689.1475h15.9814c.0909 0 .1758-.0645.2032-.1553l.12-.4268zm2.7568-5.5634c-.0771 0-.1611 0-.2383.0112-.0566 0-.1054.0415-.127.0976l-.3378 1.1744c-.1475.5068-.0918.9707.1543 1.3164.2256.3164.6055.498 1.0625.5195l1.8437.1133c.0557 0 .1055.0263.1329.0703.0283.043.0351.1074.0214.1562-.0283.084-.1132.1485-.204.1553l-1.921.1123c-1.041.0488-2.1582.8867-2.5527 1.914l-.1406.3585c-.0283.0713.0215.1416.0986.1416h6.5977c.0771 0 .1474-.0489.169-.126.1122-.4082.1757-.837.1757-1.2803 0-2.6025-2.125-4.727-4.7344-4.727"/></svg>Tu Worker</div>
+        <p>Reenvía la petición a Holded y devuelve a la tablet solo el id y el nombre de cada persona.</p>
+      </div>
+      <div class="leg">una petición</div>
+      <div class="stop">
+        <div class="who"><svg xmlns="http://www.w3.org/2000/svg" viewBox="17.9 10.9 106.7 28.5" fill="none" role="img" aria-label="Holded"><path d="M32.6624 22.5578L23.6866 11.9937C23.5707 11.8618 23.5169 11.7216 23.5169 11.569C23.5169 11.4 23.579 11.2598 23.7032 11.1567C23.8232 11.0536 23.9887 11 24.1997 11H32.5755C32.9396 11 33.2334 11.1319 33.461 11.3958L37.8765 16.447C37.9924 16.5995 38.0544 16.7975 38.0627 17.0449C38.071 17.2923 38.0089 17.4902 37.8765 17.6427L33.5728 22.4712C33.461 22.6073 33.3079 22.6856 33.1176 22.7145C32.9272 22.7433 32.7782 22.6897 32.6624 22.5578Z" fill="#FF5454"></path><path d="M27.5641 28.2934L18.1869 17.4737C18.0545 17.3211 17.9925 17.1232 18.0007 16.8799C18.0131 16.6325 18.0835 16.4346 18.2159 16.282L21.2368 12.7607C21.3899 12.5916 21.5513 12.505 21.721 12.505C21.9279 12.505 22.1017 12.5916 22.2341 12.7607L31.6692 23.836C31.7809 23.968 31.8389 24.1082 31.8389 24.2484C31.8389 24.3927 31.7851 24.5288 31.6692 24.6607L28.4786 28.2934C28.3628 28.446 28.2179 28.5202 28.0359 28.5202C27.8538 28.5202 27.6965 28.446 27.5641 28.2934Z" fill="#FF5454"></path><g clip-path="url(#holded-visma-logo-clip)"><path d="M117.03 25.5925C116.328 25.5925 115.708 25.4232 115.167 25.0803C114.626 24.7375 114.2 24.2708 113.886 23.6719C113.573 23.073 113.416 22.3956 113.416 21.6398C113.416 20.8798 113.573 20.2065 113.886 19.62C114.2 19.0335 114.626 18.5792 115.167 18.2529C115.708 17.9307 116.328 17.7696 117.03 17.7696C118.071 17.7696 118.938 18.129 119.632 18.8518C120.326 19.5746 120.669 20.4998 120.669 21.6398C120.669 22.3791 120.512 23.0523 120.198 23.6595C119.884 24.2667 119.45 24.7416 118.888 25.0803C118.335 25.419 117.711 25.5925 117.03 25.5925ZM102.127 28.6903C103.358 28.6903 104.482 28.4135 105.498 27.8642C106.514 27.3148 107.311 26.5673 107.902 25.6173C108.017 25.4479 107.968 25.3034 107.761 25.1919L105.428 23.9693C105.238 23.8743 105.085 23.9238 104.973 24.1097C104.746 24.5475 104.37 24.8986 103.85 25.1629C103.329 25.4273 102.772 25.5595 102.185 25.5595C101.144 25.5595 100.285 25.1919 99.612 24.4484C98.9388 23.7091 98.6042 22.7591 98.6042 21.6026C98.6042 20.4254 98.947 19.4837 99.6285 18.7733C100.31 18.0629 101.165 17.7077 102.189 17.7077C102.892 17.7077 103.511 17.8729 104.052 18.2074C104.593 18.5379 104.99 18.9757 105.246 19.5168C105.502 20.0578 105.572 20.6402 105.461 21.268L105.601 20.442H98.121L98.5175 22.8871H108.443C108.649 22.8871 108.773 22.7839 108.81 22.5732C108.831 22.2304 108.847 21.8917 108.868 21.5489C108.868 20.2809 108.587 19.1079 108.03 18.0381C107.472 16.9683 106.683 16.1216 105.667 15.5062C104.651 14.8908 103.474 14.581 102.127 14.581C100.802 14.581 99.5955 14.8949 98.5134 15.5186C97.4312 16.1464 96.5886 16.9973 95.9814 18.0794C95.3743 19.1616 95.0728 20.347 95.0728 21.6356C95.0728 22.9821 95.3702 24.1964 95.9691 25.2745C96.568 26.3566 97.4023 27.1951 98.4721 27.7898C99.5418 28.3929 100.76 28.6903 102.127 28.6903ZM85.6308 28.7192C86.3495 28.7192 87.0186 28.5953 87.634 28.3474C88.2495 28.0996 88.7492 27.7981 89.1292 27.4388C89.5092 27.0794 89.7446 26.7449 89.8396 26.4433V28.0666C89.8396 28.1616 89.8727 28.2442 89.9388 28.3103C90.0049 28.3763 90.0875 28.4094 90.1825 28.4094H93.082C93.177 28.4094 93.2554 28.3763 93.3256 28.3103C93.3917 28.2442 93.4248 28.1616 93.4248 28.0666V11.3428C93.4248 11.2478 93.3917 11.1693 93.3256 11.0991C93.2596 11.033 93.177 11 93.082 11H90.1825C90.0875 11 90.0049 11.033 89.9388 11.0991C89.8727 11.1652 89.8396 11.2478 89.8396 11.3428V16.6586C89.7446 16.4521 89.5009 16.1794 89.1127 15.849C88.7244 15.5186 88.2329 15.2253 87.634 14.9693C87.0351 14.7132 86.3784 14.5851 85.6556 14.5851C84.4248 14.5851 83.3096 14.8949 82.3142 15.5103C81.3187 16.1258 80.5298 16.9725 79.9516 18.0422C79.3734 19.112 79.0842 20.3139 79.0842 21.6398C79.0842 22.9656 79.3734 24.1717 79.9516 25.2538C80.5298 26.336 81.3229 27.1827 82.3265 27.7981C83.3343 28.4094 84.4371 28.7192 85.6308 28.7192ZM86.2008 25.5925C85.5193 25.5925 84.8997 25.4232 84.3504 25.0803C83.8011 24.7375 83.3674 24.2708 83.0576 23.6719C82.7437 23.073 82.5868 22.3956 82.5868 21.6398C82.5868 20.8798 82.7437 20.2065 83.0576 19.62C83.3715 19.0335 83.8011 18.5792 84.3504 18.2529C84.8997 17.9307 85.5152 17.7696 86.2008 17.7696C87.2417 17.7696 88.109 18.129 88.8029 18.8518C89.4968 19.5746 89.8396 20.4998 89.8396 21.6398C89.8396 22.3791 89.6827 23.0523 89.3688 23.6595C89.0549 24.2667 88.6212 24.7416 88.0595 25.0803C87.5019 25.419 86.8823 25.5925 86.2008 25.5925ZM74.2517 28.4053H77.1512C77.2462 28.4053 77.3247 28.3722 77.3949 28.3061C77.461 28.24 77.494 28.1574 77.494 28.0624V11.3428C77.494 11.2478 77.461 11.1693 77.3949 11.0991C77.3288 11.033 77.2462 11 77.1512 11H74.2517C74.1567 11 74.0783 11.033 74.008 11.0991C73.942 11.1652 73.9089 11.2478 73.9089 11.3428V28.0666C73.9089 28.1616 73.942 28.2442 74.008 28.3103C74.0783 28.3722 74.1567 28.4053 74.2517 28.4053ZM65.0948 25.5347C64.0333 25.5347 63.1452 25.1795 62.4348 24.469C61.7244 23.7586 61.3692 22.8252 61.3692 21.6687C61.3692 20.5122 61.7244 19.5746 62.4348 18.8518C63.1452 18.1331 64.0333 17.7696 65.0948 17.7696C66.1563 17.7696 67.0443 18.129 67.7547 18.8518C68.4651 19.5746 68.8203 20.5122 68.8203 21.6687C68.8203 22.8252 68.4692 23.7586 67.7671 24.469C67.0691 25.1795 66.1769 25.5347 65.0948 25.5347ZM65.0948 28.7192C66.4784 28.7192 67.7217 28.4053 68.8203 27.7816C69.919 27.1538 70.7781 26.307 71.3935 25.2373C72.009 24.1675 72.3187 22.978 72.3187 21.6687C72.3187 20.3594 72.009 19.1657 71.3935 18.0835C70.7781 17.0014 69.919 16.1505 68.8203 15.5227C67.7217 14.899 66.4784 14.5851 65.0948 14.5851C63.7111 14.5851 62.4679 14.899 61.3692 15.5227C60.2705 16.1505 59.4114 17.0014 58.796 18.0835C58.1806 19.1657 57.8708 20.3594 57.8708 21.6687C57.8708 22.978 58.1806 24.1675 58.796 25.2373C59.4114 26.307 60.2705 27.1579 61.3692 27.7816C62.4679 28.4053 63.7111 28.7192 65.0948 28.7192ZM43.8772 28.4053H46.7767C46.8717 28.4053 46.9502 28.3722 47.0204 28.3061C47.0865 28.24 47.1195 28.1574 47.1195 28.0624V21.1524C47.1195 20.1281 47.3921 19.3144 47.9456 18.7072C48.4949 18.1001 49.2053 17.7985 50.0768 17.7985C50.8905 17.7985 51.5348 18.0629 52.0098 18.5957C52.4848 19.1285 52.7203 19.8761 52.7203 20.8426V28.0666C52.7203 28.1616 52.7533 28.2442 52.8194 28.3103C52.8855 28.3763 52.9639 28.4094 53.0631 28.4094H55.9626C56.0576 28.4094 56.136 28.3763 56.2063 28.3103C56.2723 28.2442 56.3054 28.1616 56.3054 28.0666V20.2726C56.3054 18.8146 56.0245 17.6622 55.4669 16.8155C54.9093 15.9729 54.2443 15.3906 53.4761 15.0684C52.7079 14.7462 51.9561 14.5851 51.2168 14.5851C50.3081 14.5851 49.4697 14.7627 48.7014 15.1097C47.9332 15.4608 47.4086 15.911 47.1236 16.4603V11.3428C47.1236 11.2478 47.0906 11.1693 47.0245 11.0991C46.9584 11.033 46.8758 11 46.7808 11H43.8813C43.7863 11 43.7078 11.033 43.6376 11.0991C43.5715 11.1652 43.5385 11.2478 43.5385 11.3428V28.0666C43.5385 28.1616 43.5715 28.2442 43.6376 28.3103C43.7037 28.3722 43.7822 28.4053 43.8772 28.4053ZM116.46 28.7192C117.178 28.7192 117.847 28.5953 118.463 28.3474C119.078 28.0996 119.578 27.7981 119.958 27.4388C120.338 27.0794 120.574 26.7449 120.669 26.4433V28.0666C120.669 28.1616 120.702 28.2442 120.768 28.3103C120.834 28.3763 120.912 28.4094 121.011 28.4094H123.911C124.006 28.4094 124.084 28.3763 124.155 28.3103C124.221 28.2442 124.254 28.1616 124.254 28.0666V11.3428C124.254 11.2478 124.221 11.1693 124.155 11.0991C124.088 11.033 124.006 11 123.911 11H121.011C120.916 11 120.834 11.033 120.768 11.0991C120.702 11.1652 120.669 11.2478 120.669 11.3428V16.6586C120.574 16.4521 120.33 16.1794 119.942 15.849C119.553 15.5186 119.062 15.2253 118.463 14.9693C117.864 14.7132 117.207 14.5851 116.484 14.5851C115.254 14.5851 114.138 14.8949 113.143 15.5103C112.148 16.1258 111.359 16.9725 110.785 18.0422C110.206 19.112 109.917 20.3139 109.917 21.6398C109.917 22.9656 110.206 24.1717 110.785 25.2538C111.363 26.336 112.156 27.1827 113.16 27.7981C114.167 28.4094 115.266 28.7192 116.46 28.7192Z" fill="currentColor"></path></g><path d="M94.4067 37.9409V33.3577H95.2168V35.072H95.2504C95.2922 34.9884 95.3511 34.8996 95.4272 34.8056C95.5033 34.7102 95.6062 34.6289 95.736 34.5617C95.8658 34.4931 96.0314 34.4588 96.2328 34.4588C96.4984 34.4588 96.7378 34.5267 96.9512 34.6624C97.166 34.7967 97.3361 34.9959 97.4614 35.2599C97.5882 35.5225 97.6516 35.8448 97.6516 36.2267C97.6516 36.6042 97.5897 36.9249 97.4659 37.189C97.3421 37.4531 97.1735 37.6545 96.9601 37.7932C96.7468 37.932 96.5051 38.0013 96.2351 38.0013C96.0381 38.0013 95.8748 37.9685 95.745 37.9029C95.6152 37.8372 95.5107 37.7582 95.4317 37.6657C95.3541 37.5717 95.2937 37.4829 95.2504 37.3994H95.2034V37.9409H94.4067ZM95.2012 36.2222C95.2012 36.4445 95.2325 36.6392 95.2951 36.8063C95.3593 36.9734 95.4511 37.1039 95.5704 37.1979C95.6913 37.2904 95.8375 37.3367 96.009 37.3367C96.1881 37.3367 96.338 37.2889 96.4588 37.1935C96.5797 37.0965 96.6707 36.9645 96.7319 36.7974C96.7945 36.6288 96.8259 36.4371 96.8259 36.2222C96.8259 36.0089 96.7953 35.8194 96.7341 35.6538C96.6729 35.4882 96.5819 35.3584 96.4611 35.2644C96.3402 35.1704 96.1896 35.1234 96.009 35.1234C95.836 35.1234 95.689 35.1689 95.5682 35.2599C95.4473 35.3509 95.3556 35.4785 95.2929 35.6426C95.2317 35.8067 95.2012 35.9999 95.2012 36.2222ZM98.3803 39.2299C98.2699 39.2299 98.1677 39.221 98.0737 39.2031C97.9812 39.1867 97.9074 39.1673 97.8522 39.1449L98.0402 38.5138C98.158 38.5481 98.2632 38.5645 98.3557 38.563C98.4482 38.5616 98.5295 38.5325 98.5997 38.4758C98.6713 38.4206 98.7317 38.3281 98.7809 38.1983L98.8503 38.0125L97.6038 34.5035H98.4631L99.2554 37.0995H99.2912L100.086 34.5035H100.947L99.5709 38.3572C99.5067 38.5392 99.4217 38.6951 99.3158 38.8249C99.2098 38.9562 99.08 39.0561 98.9264 39.1248C98.7742 39.1949 98.5922 39.2299 98.3803 39.2299Z" fill="currentColor"></path><path d="M103.274 32.7621L104.637 36.8849H104.691L106.052 32.7621H107.095L105.249 38H104.077L102.233 32.7621H103.274ZM108.482 32.7621V38H107.533V32.7621H108.482ZM112.104 34.202C112.08 33.9786 111.979 33.8047 111.802 33.6802C111.627 33.5558 111.398 33.4935 111.117 33.4935C110.919 33.4935 110.749 33.5234 110.608 33.5831C110.466 33.6427 110.358 33.7237 110.283 33.826C110.208 33.9283 110.17 34.0451 110.168 34.1764C110.168 34.2855 110.193 34.3802 110.242 34.4603C110.293 34.5404 110.362 34.6086 110.449 34.6649C110.536 34.7195 110.632 34.7655 110.738 34.803C110.844 34.8405 110.95 34.8721 111.058 34.8977L111.549 35.0204C111.747 35.0665 111.937 35.1287 112.119 35.2071C112.303 35.2856 112.468 35.3844 112.613 35.5038C112.76 35.6232 112.875 35.7672 112.961 35.936C113.046 36.1048 113.089 36.3026 113.089 36.5294C113.089 36.8363 113.01 37.1066 112.853 37.3401C112.696 37.572 112.47 37.7536 112.173 37.8849C111.878 38.0145 111.521 38.0793 111.101 38.0793C110.694 38.0793 110.34 38.0162 110.04 37.89C109.742 37.7639 109.508 37.5797 109.339 37.3376C109.172 37.0955 109.082 36.8005 109.068 36.4527H110.002C110.015 36.6351 110.072 36.7869 110.17 36.9079C110.269 37.029 110.398 37.1193 110.557 37.179C110.717 37.2387 110.896 37.2685 111.094 37.2685C111.3 37.2685 111.481 37.2378 111.636 37.1765C111.793 37.1134 111.916 37.0264 112.004 36.9156C112.093 36.8031 112.138 36.6718 112.14 36.5217C112.138 36.3853 112.098 36.2728 112.02 36.1841C111.941 36.0937 111.831 36.0187 111.69 35.9591C111.55 35.8977 111.386 35.8431 111.199 35.7954L110.603 35.6419C110.171 35.5311 109.83 35.3631 109.58 35.1381C109.331 34.9113 109.206 34.6104 109.206 34.2352C109.206 33.9266 109.29 33.6564 109.457 33.4245C109.626 33.1926 109.855 33.0127 110.145 32.8848C110.435 32.7553 110.763 32.6905 111.13 32.6905C111.501 32.6905 111.827 32.7553 112.107 32.8848C112.388 33.0127 112.609 33.1909 112.769 33.4194C112.929 33.6461 113.012 33.907 113.017 34.202H112.104ZM113.682 32.7621H114.844L116.399 36.5575H116.46L118.015 32.7621H119.176V38H118.266V34.4015H118.217L116.769 37.9847H116.089L114.642 34.3938H114.593V38H113.682V32.7621ZM120.63 38H119.617L121.461 32.7621H122.633L124.479 38H123.466L122.067 33.8363H122.026L120.63 38ZM120.663 35.9463H123.425V36.7084H120.663V35.9463Z" fill="currentColor"></path><defs><clipPath id="holded-visma-logo-clip"><rect width="80.7129" height="17.7321" fill="white" transform="translate(43.5385 11)"></rect></clipPath></defs></svg></div>
+        <p>Registra el fichaje, igual que si se hubiera hecho desde su aplicación.</p>
       </div>
     </div>
-  </section>
+    <p class="budget">Holded admite 100 peticiones por minuto por clave. El kiosko hace una cada dos minutos por empresa para refrescar la pantalla, y una por cada toque.</p>
+  </div>
+</section>
 
-  <section aria-labelledby="como-t">
-    <div class="wrap">
-      <h2 id="como-t">Cómo funciona</h2>
-      <ul class="flow" aria-label="Flujo de peticiones">
-        <li>Tablet</li><li class="arrow" aria-hidden="true">&rarr;</li>
-        <li>Tu Worker de Cloudflare</li><li class="arrow" aria-hidden="true">&rarr;</li>
-        <li>API de Holded v2</li>
-      </ul>
-      <p>El Worker sirve el frontend y atiende <code>/api/*</code> desde el mismo origen. La tablet envía la clave de la empresa activa en cada petición y el Worker la reenvía a Holded.</p>
-      <p>Holded permite 100 peticiones por minuto por clave. El kiosko consulta los fichajes una vez cada 2 minutos por empresa activa, y solo mientras la página está visible. Cada acción de fichaje es una sola petición.</p>
-    </div>
-  </section>
-
-  <section id="seguridad" aria-labelledby="seg-t">
-    <div class="wrap">
-      <h2 id="seg-t">Seguridad y límites</h2>
-      <p>El Worker devuelve únicamente el id y el nombre de cada empleado, y el nombre y la URL del logo de la empresa. No devuelve IBAN, número de la Seguridad Social, salario ni dirección. Su código no guarda datos ni escribe logs. Aplica unas 120 peticiones por minuto por IP, un límite aproximado, y sirve el frontend con una Content-Security-Policy restrictiva y cabeceras de seguridad.</p>
-      <div class="limits">
-        <h3>Lo que debes saber antes de instalarlo</h3>
+<section id="seguridad">
+  <div class="wrap">
+    <h2>Seguridad, sin letra pequeña</h2>
+    <div class="honest">
+      <div class="does">
+        <h3>Lo que hace</h3>
         <ul>
-          <li>La clave de API se guarda en el <code>localStorage</code> de la tablet, en texto plano y sin PIN. Cualquiera con acceso al navegador puede leerla.</li>
-          <li>Con el permiso <code>team:employees.read</code>, esa clave puede leer los registros completos de los empleados directamente en la API de Holded. Usa una clave dedicada, solo con los permisos de la tabla, y un dispositivo que controles.</li>
-          <li>No hay PIN por empleado. Cualquiera que tenga delante el kiosko puede fichar por cualquier otra persona.</li>
-          <li>La URL del kiosko no tiene control de acceso.</li>
+          <li>El Worker devuelve a la tablet solo el id y el nombre de cada empleado, y el nombre y el logo de la empresa. Nunca IBAN, número de la Seguridad Social, salario ni dirección.</li>
+          <li>La clave de Holded no se queda en la tablet. El Worker la cifra con un secreto que solo él tiene y la tablet guarda únicamente esa versión sellada, que no sirve para llamar a Holded directamente.</li>
+          <li>El código del Worker no escribe registros ni guarda fichajes.</li>
+          <li>Límite aproximado de 120 peticiones por minuto por IP, y una Content-Security-Policy estricta en la pantalla.</li>
+        </ul>
+      </div>
+      <div class="limits">
+        <h3>Lo que debes saber antes de colgarla</h3>
+        <ul>
+          <li>No hay PIN por empleado. Quien tenga delante la tablet puede fichar por otra persona.</li>
+          <li>La dirección del kiosko no tiene contraseña. Quien copie la clave sellada de la tablet puede usar tu Worker desde otro sitio para ver nombres y fichar.</li>
+          <li>La clave viaja sin cifrar por dentro de la conexión segura una vez, al escribirla. Quien administre tu Worker puede leerla.</li>
+          <li>Usa una clave dedicada, solo con los permisos de la tabla, y una tablet que controles.</li>
         </ul>
       </div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <section aria-labelledby="pantallas-t">
-    <div class="wrap">
-      <h2 id="pantallas-t">Configuración y varias empresas</h2>
-      <div class="shots">
-        <figure>
-          <img src="img/settings.png" width="820" height="760" loading="lazy" alt="Panel de configuración con el selector de empresas Acme Estudio y Nordika, el campo de nombre, el cambio de token y la lista de empleados con botón Ocultar.">
-          <figcaption>El panel de configuración: selector de empresa, cambio de token y empleados ocultos.</figcaption>
-        </figure>
-        <figure>
-          <img src="img/add-company.png" width="820" height="760" loading="lazy" alt="Formulario Añadir empresa con los campos de nombre y token de Holded, y la lista de permisos que necesita el token.">
-          <figcaption>Añadir una empresa. El nombre es opcional y, vacío, se toma de Holded.</figcaption>
-        </figure>
-      </div>
+<section>
+  <div class="wrap">
+    <h2>Ajustes por empresa</h2>
+    <p class="lede">El engranaje abre un panel con las empresas del kiosko. Cada una guarda su clave y su lista de personas ocultas.</p>
+    <div class="pair">
+      <figure>
+        <img src="img/settings.png" width="820" height="760" loading="lazy" alt="Panel de configuración con el selector de empresas, el cambio de clave y la lista para ocultar empleados.">
+        <figcaption>Elige una empresa para cambiar su nombre o su clave, u ocultar a quien no deba aparecer.</figcaption>
+      </figure>
+      <figure>
+        <img src="img/add-company.png" width="820" height="760" loading="lazy" alt="Formulario para añadir una empresa: nombre opcional y clave de Holded, con la lista de permisos necesarios.">
+        <figcaption>El botón «+» añade otra empresa. El formulario recuerda qué permisos necesita la clave.</figcaption>
+      </figure>
     </div>
-  </section>
+  </div>
+</section>
+
+<section class="close">
+  <div class="wrap">
+    <h2>Diez minutos y un clavo en la pared</h2>
+    <p class="lede">El despliegue crea el kiosko en tu cuenta. Si no te convence, borras el Worker y revocas la clave.</p>
+    <div class="actions">
+      <a class="btn btn-go" href="https://deploy.workers.cloudflare.com/?url=https://github.com/rubengargar/holdedkiosk">Desplegar en Cloudflare</a>
+      <a class="btn btn-plain" href="https://github.com/rubengargar/holdedkiosk#readme">Leer la documentación</a>
+    </div>
+  </div>
+</section>
+
 </main>
 
 <footer>
   <div class="wrap">
-    <p>Proyecto independiente. No está afiliado a Holded ni cuenta con su respaldo. "Holded" es una marca de su titular.</p>
-    <p>Licencia MIT. <a href="https://github.com/rubengargar/holdedkiosk">Código en GitHub</a>.</p>
+    <p>Holded Kiosk es un proyecto independiente de código abierto con licencia MIT. No está afiliado a Holded ni a Cloudflare, ni cuenta con su respaldo. «Holded» y «Cloudflare», y sus logotipos, son marcas de sus respectivos titulares y se muestran solo para indicar con qué servicios funciona.</p>
+    <p><a href="https://github.com/rubengargar/holdedkiosk">Código en GitHub</a></p>
   </div>
 </footer>
+
 </body>
 </html>
