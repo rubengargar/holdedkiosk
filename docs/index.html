@@ -434,7 +434,7 @@ footer p { max-width: 46rem; }
       </figure>
       <ol class="legend">
         <li><h3>Varias empresas en la misma tablet</h3><p>Si compartís oficina, cada empresa tiene su círculo con su logo. Un toque cambia de plantilla.</p></li>
-        <li><h3>Quién está dentro y quién fuera</h3><p>El recuento se actualiza solo cada dos minutos, también con los fichajes hechos desde el móvil.</p></li>
+        <li><h3>Quién está dentro y quién fuera</h3><p>El recuento se pone al día cada media hora, también con los fichajes hechos desde el móvil, y al instante con los hechos en la tablet.</p></li>
         <li><h3>Tiempo trabajado hoy</h3><p>Cada fila muestra las horas del día y avanza minuto a minuto mientras la persona está fichada.</p></li>
         <li><h3>Entrada, pausa, reanudar y salida</h3><p>Botones grandes por persona. Cada toque es un único fichaje en Holded.</p></li>
       </ol>
@@ -513,7 +513,19 @@ footer p { max-width: 46rem; }
         <p>Registra el fichaje, igual que si se hubiera hecho desde su aplicación.</p>
       </div>
     </div>
-    <p class="budget">Holded admite 100 peticiones por minuto por clave. El kiosko hace una cada dos minutos por empresa para refrescar la pantalla, y una por cada toque.</p>
+    <p class="budget">Cada fichaje es una llamada a la API de Holded. Para refrescar la pantalla, el kiosko hace una más cada 30 minutos, solo mientras alguien lo usa. De noche y en fin de semana no hace ninguna.</p>
+
+    <table>
+      <caption>Cuántas personas caben en la cuota mensual de la API de Holded</caption>
+      <thead><tr><th scope="col">Plan de Holded</th><th scope="col">Llamadas al mes</th><th scope="col">Refresco cada 30 min</th><th scope="col">Refresco solo manual</th></tr></thead>
+      <tbody>
+        <tr><td>Starter</td><td>500</td><td>No alcanza</td><td>5 personas</td></tr>
+        <tr><td>Growth y Basic</td><td>2.000</td><td>17 personas</td><td>22 personas</td></tr>
+        <tr><td>Standard</td><td>7.500</td><td>79 personas</td><td>84 personas</td></tr>
+        <tr><td>Advanced</td><td>30.000</td><td>335 personas</td><td>340 personas</td></tr>
+      </tbody>
+    </table>
+    <p class="budget">Cálculo con 4 fichajes por persona y día, 22 días laborables y 10 horas de uso diario. La cuota es de toda la cuenta de Holded y la comparten el resto de tus integraciones. Si se agota, el kiosko no puede fichar hasta el mes siguiente; fichar desde la aplicación de Holded no gasta cuota. El intervalo de refresco se elige en los ajustes de cada empresa.</p>
   </div>
 </section>
 
