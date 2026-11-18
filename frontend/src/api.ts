@@ -98,5 +98,8 @@ export function describeError(e: unknown): string {
       ? 'Holded está limitando las peticiones. Se mantienen los datos actuales y se reintentará más tarde.'
       : 'El kiosko está recibiendo demasiadas peticiones. Se mantienen los datos actuales y se reintentará más tarde.'
   }
+  if (e instanceof ApiError && e.status === 503 && e.message !== 'Sealing is not available on this Worker') {
+    return 'El servidor no está disponible temporalmente, inténtalo de nuevo en un minuto. Se mantienen los datos actuales.'
+  }
   return e instanceof Error ? e.message : String(e)
 }

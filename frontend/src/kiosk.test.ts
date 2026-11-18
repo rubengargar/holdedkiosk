@@ -31,6 +31,7 @@ interface World {
   failingActions: Set<string>
   info: AccountInfo
   infoStatus: number
+  unavailable: boolean
 }
 
 let world: World
@@ -48,6 +49,9 @@ async function fakeFetch(input: string, init: RequestInit = {}): Promise<Respons
   requests.push({ method, path: url.pathname, token })
 
   if (world.badTokens.has(token)) return reply({ error: 'Holded request failed', detail: 'Unauthorized' }, 401)
+  if (world.unavailable && url.pathname !== '/api/seal') {
+    return reply({ error: 'Sealing key is not available yet, try again in a minute' }, 503)
+  }
   if (url.pathname === '/api/seal') {
     return world.sealStatus === 200
       ? reply({ token: `sealed.${token}`, employees: world.employees })
@@ -122,7 +126,8 @@ beforeEach(async () => {
     sealStatus: 200,
     failingActions: new Set(),
     info: { name: 'Acme Holded', logoUrl: 'https://app.holded.com/box/account/abc' },
-    infoStatus: 200
+    infoStatus: 200,
+    unavailable: false
   }
   requests = []
   mounted = []
@@ -561,7 +566,21 @@ describe('sealed tokens', () => {
       { method: 'GET', path: '/api/times', token: 'sealed.key-new' }
     ])
     expect(storedTokens()).toEqual(['sealed.token-a', 'sealed.key-new'])
-    expect(JSON.stringify(localStorage.getItem('kiosk_accounts'))).not.toContain('"key-new"')
+    expect(localStorage.getItem('kiosk_accounts')).not.toContain('"key-new"')
+  })
+
+  it('shows a 503 as a temporary problem, keeps the data and does not ask for the key again', async () => {
+    const kiosk = await mountKiosk()
+    world.unavailable = true
+
+    kiosk.refresh()
+    await settle()
+
+    const state = kiosk.activeState.value
+    expect(state?.error).toContain('inténtalo de nuevo en un minuto')
+    expect(state?.error).not.toContain('Vuelve a introducir')
+    expect(state?.employees).toEqual([ANA, BEA])
+    expect(storedTokens()).toEqual(['sealed.token-a'])
   })
 
   it('does not add the company when sealing fails', async () => {

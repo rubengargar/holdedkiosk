@@ -90,3 +90,21 @@ describe('describeError on a sealed token this Worker cannot open', () => {
     expect(describeError(new ApiError(401, 'Holded request failed: Unauthorized'))).toBe('Holded request failed: Unauthorized')
   })
 })
+
+describe('describeError on a 503', () => {
+  it('asks to retry in a minute, keeps the data and does not ask to re-enter the key', async () => {
+    const { describeError, ApiError } = await loadApi(undefined)
+
+    const message = describeError(new ApiError(503, 'Sealing key is not available yet, try again in a minute'))
+
+    expect(message).toContain('inténtalo de nuevo en un minuto')
+    expect(message).toContain('Se mantienen los datos actuales')
+    expect(message).not.toContain('Vuelve a introducir')
+  })
+
+  it('keeps the plain message when this Worker has no sealing at all', async () => {
+    const { describeError, ApiError } = await loadApi(undefined)
+
+    expect(describeError(new ApiError(503, 'Sealing is not available on this Worker'))).toBe('Sealing is not available on this Worker')
+  })
+})

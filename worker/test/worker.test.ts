@@ -466,7 +466,36 @@ describe('sealed tokens', () => {
 		}
 	}
 
-	const sealedEnv = (kv = new MemoryKv()): Env => ({ ...ENV, KIOSK_KEYS: kv.asBinding() });
+	// Models KV's eventual consistency: a location reads its own writes at once and other locations' writes only after propagate().
+	class EventualKv {
+		private committed = new Map<string, string>();
+		private local = new Map<string, Map<string, string>>();
+		constructor(private latency = 0) {}
+		at(location: string): KVNamespace {
+			const own = new Map<string, string>();
+			this.local.set(location, own);
+			const latency = this.latency;
+			const committed = this.committed;
+			return {
+				async get(name: string) {
+					await new Promise((resolve) => setTimeout(resolve, latency));
+					return own.get(name) ?? committed.get(name) ?? null;
+				},
+				async put(name: string, value: string) {
+					await new Promise((resolve) => setTimeout(resolve, latency));
+					own.set(name, value);
+				},
+			} as unknown as KVNamespace;
+		}
+		propagate() {
+			for (const own of this.local.values()) for (const [name, value] of own) this.committed.set(name, value);
+		}
+		has(name: string) {
+			return this.committed.has(name);
+		}
+	}
+
+	const sealedEnv = (kv: MemoryKv | KVNamespace = new MemoryKv()): Env => ({ ...ENV, KIOSK_KEYS: kv instanceof MemoryKv ? kv.asBinding() : kv });
 
 	const seal = async (env: Env, key = PLAIN) => {
 		const response = await call('/api/seal', { method: 'POST', key, env });
@@ -481,7 +510,7 @@ describe('sealed tokens', () => {
 		const { response, body } = await seal(sealedEnv());
 
 		expect(response.status).toBe(200);
-		expect(body.token).toMatch(/^sealed\.v1\.[\w-]+\.[\w-]+$/);
+		expect(body.token).toMatch(/^sealed\.v1\.[\w-]{11}\.[\w-]+\.[\w-]+$/);
 		expect(body.employees).toEqual([{ id: '1'.repeat(24), name: 'Alfa' }]);
 		expect(upstreamCalls.map((c) => c.url.pathname)).toEqual(['/api/v2/employees']);
 		expect(authorizations()).toEqual([`Bearer ${PLAIN}`]);
@@ -566,10 +595,11 @@ describe('sealed tokens', () => {
 			expect(authorizations()).toEqual([`Bearer ${PLAIN}`]);
 		});
 
-		it('is rejected with 401 and no Holded call when sealed by another Worker key', async () => {
-			const other = sealedEnv();
+		it('is rejected with 401 and no Holded call when the key stored under its kid is another one', async () => {
+			const other = new MemoryKv();
+			await other.put(`sealing-key:${token.split('.')[2]}`, 'A'.repeat(43));
 
-			const response = await call('/api/employees', { key: token, env: other });
+			const response = await call('/api/employees', { key: token, env: sealedEnv(other) });
 
 			expect(response.status).toBe(401);
 			expect(await response.json()).toEqual({ error: 'Sealed token is not valid for this kiosk' });
@@ -577,11 +607,12 @@ describe('sealed tokens', () => {
 		});
 
 		it.each([
-			['ciphertext', (parts: string[]) => [...parts.slice(0, 3), flip(parts[3])]],
-			['iv', (parts: string[]) => [...parts.slice(0, 2), flip(parts[2]), parts[3]]],
-			['version', (parts: string[]) => ['sealed', 'v2', parts[2], parts[3]]],
-			['shape', () => ['sealed', 'v1', 'AAAA']],
-			['encoding', (parts: string[]) => [...parts.slice(0, 3), '***']],
+			['ciphertext', (parts: string[]) => [...parts.slice(0, 4), flip(parts[4])]],
+			['iv', (parts: string[]) => [...parts.slice(0, 3), flip(parts[3]), parts[4]]],
+			['version', (parts: string[]) => ['sealed', 'v2', ...parts.slice(2)]],
+			['shape', () => ['sealed', 'v1', 'AAAAAAAAAAA', 'AAAA']],
+			['kid shape', (parts: string[]) => [...parts.slice(0, 2), '../x', ...parts.slice(3)]],
+			['encoding', (parts: string[]) => [...parts.slice(0, 4), '***']],
 		])('is rejected with 401 and no Holded call when the %s is tampered', async (_name, tamper) => {
 			const tampered = tamper(token.split('.')).join('.');
 
@@ -596,15 +627,26 @@ describe('sealed tokens', () => {
 			const kv = new MemoryKv();
 			const bound = sealedEnv(kv);
 			await seal(bound);
-			const raw = (await kv.get('sealing-key-v1')) as string;
+			const kid = (await kv.get('sealing-key-current')) as string;
+			const raw = (await kv.get(`sealing-key:${kid}`)) as string;
 			const key = await crypto.subtle.importKey('raw', Uint8Array.from(atob(raw.replaceAll('-', '+').replaceAll('_', '/')), (c) => c.charCodeAt(0)), 'AES-GCM', false, ['encrypt']);
 			const iv = crypto.getRandomValues(new Uint8Array(12));
 			const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(PLAIN));
 			const b64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 
-			const response = await call('/api/employees', { key: `sealed.v1.${b64(iv)}.${b64(new Uint8Array(encrypted))}`, env: bound });
+			const response = await call('/api/employees', { key: `sealed.v1.${kid}.${b64(iv)}.${b64(new Uint8Array(encrypted))}`, env: bound });
 
 			expect(response.status).toBe(401);
+		});
+
+		it('answers 503, not 401, for a kid that is not stored', async () => {
+			const unknown = ['sealed', 'v1', 'AAAAAAAAAAA', ...token.split('.').slice(3)].join('.');
+
+			const response = await call('/api/employees', { key: unknown, env });
+
+			expect(response.status).toBe(503);
+			expect(await response.json()).toEqual({ error: 'Sealing key is not available yet, try again in a minute' });
+			expect(upstreamCalls).toHaveLength(0);
 		});
 
 		it('answers 503 when the Worker has no KV binding', async () => {
@@ -631,24 +673,42 @@ describe('sealed tokens', () => {
 		await call('/api/employees', { key: body.token, env });
 		await seal(env);
 
-		expect(readsAfterFirstSeal).toBe(2);
+		expect(readsAfterFirstSeal).toBe(1);
 		expect(kv.reads).toBe(readsAfterFirstSeal);
 	});
 
-	it('converges on one key when two isolates seal for the first time at once', async () => {
-		const kv = new MemoryKv(5);
-		const env = sealedEnv(kv);
-		vi.resetModules();
-		const other = (await import('../src/index')).default;
-		const sealWith = (w: typeof worker) =>
-			w.fetch(new Request('https://worker.test/api/seal', { method: 'POST', headers: { 'X-Holded-API-Key': PLAIN } }), env).then((r) => r.json() as Promise<{ token: string }>);
+	describe('with eventually consistent KV', () => {
+		const sealAt = async (env: Env) => (await seal(env)).body.token;
+		const unsealAt = (env: Env, token: string) => call('/api/employees', { key: token, env });
 
-		const [a, b] = await Promise.all([sealWith(worker), sealWith(other)]);
+		it('opens both tokens from both locations when two locations seal for the first time at once', async () => {
+			const kv = new EventualKv(5);
+			const a = sealedEnv(kv.at('a'));
+			const b = sealedEnv(kv.at('b'));
 
-		for (const [token, reader] of [[a.token, other], [b.token, worker]] as const) {
-			const response = await reader.fetch(new Request('https://worker.test/api/employees', { headers: { 'X-Holded-API-Key': token } }), env);
-			expect(response.status).toBe(200);
-		}
+			const [tokenA, tokenB] = await Promise.all([sealAt(a), sealAt(b)]);
+			kv.propagate();
+
+			expect(tokenA.split('.')[2]).not.toBe(tokenB.split('.')[2]);
+			for (const token of [tokenA, tokenB]) {
+				for (const env of [a, b]) expect((await unsealAt(env, token)).status).toBe(200);
+			}
+		});
+
+		it('answers 503 for a kid another location wrote, does not cache the miss, and succeeds after propagation', async () => {
+			const kv = new EventualKv();
+			const a = sealedEnv(kv.at('a'));
+			const b = sealedEnv(kv.at('b'));
+			const token = await sealAt(a);
+
+			const early = await unsealAt(b, token);
+			expect(early.status).toBe(503);
+			expect(await early.json()).toEqual({ error: 'Sealing key is not available yet, try again in a minute' });
+
+			kv.propagate();
+
+			expect((await unsealAt(b, token)).status).toBe(200);
+		});
 	});
 });
 

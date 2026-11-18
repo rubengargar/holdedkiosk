@@ -6,7 +6,7 @@ Un kiosko de fichaje para tablet que usa Holded: cada persona toca su nombre par
 
 ![Tablero del kiosko con cuatro empleados, sus tiempos de hoy y los botones de fichaje](docs/img/board.png)
 
-**In English.** Holded Kiosk is a self-hosted clock-in kiosk for [Holded](https://www.holded.com) (Spanish business software). Staff tap their name on a shared tablet to clock in, clock out, pause and resume. A Cloudflare Worker serves the Vue frontend and proxies Holded API v2. The deploy button clones the repository into your GitHub account and deploys the Worker on your Cloudflare account. The Worker seals each Holded API key with AES-256-GCM and the tablet stores only the sealed token, which is useless against Holded directly but works through your Worker from anywhere. The sealing key lives in a KV namespace the deploy button creates for you. There is no per-employee PIN. The sections on security and limits below apply in full. Documentation is in Spanish.
+**In English.** Holded Kiosk is a self-hosted clock-in kiosk for [Holded](https://www.holded.com) (Spanish business software). Staff tap their name on a shared tablet to clock in, clock out, pause and resume. A Cloudflare Worker serves the Vue frontend and proxies Holded API v2. The deploy button clones the repository into your GitHub account and deploys the Worker on your Cloudflare account. The Worker seals each Holded API key with AES-256-GCM and, once it has reloaded this version, the tablet stores only the sealed token, which is useless against Holded directly but works through your Worker from anywhere. The sealing key lives in a KV namespace the deploy button creates for you. There is no per-employee PIN. The sections on security and limits below apply in full. Documentation is in Spanish.
 
 ## Qué hace
 
@@ -46,7 +46,7 @@ flowchart LR
     W -.->|"sirve el frontend"| T
 ```
 
-El Worker sirve el frontend compilado y atiende `/api/*` desde el mismo origen, así que no hay CORS ni proyecto de Pages. Al añadir una empresa, la tablet envía la clave de Holded una sola vez a `POST /api/seal`. El Worker la valida con la misma petición de empleados de siempre, la cifra con AES-256-GCM y devuelve un token sellado (`sealed.v1.…`). La tablet guarda solo ese token y lo envía en la cabecera `X-Holded-API-Key`. El Worker lo descifra y reenvía la clave real a Holded como Bearer. Por compatibilidad, el Worker sigue aceptando también una clave sin sellar.
+El Worker sirve el frontend compilado y atiende `/api/*` desde el mismo origen, así que no hay CORS ni proyecto de Pages. Al añadir una empresa, la tablet envía la clave de Holded una sola vez a `POST /api/seal`. El Worker la valida con la misma petición de empleados de siempre, la cifra con AES-256-GCM y devuelve un token sellado (`sealed.v1.<kid>.<iv>.<cifrado>`). La tablet guarda solo ese token y lo envía en la cabecera `X-Holded-API-Key`. El Worker lo descifra y reenvía la clave real a Holded como Bearer. Por compatibilidad, el Worker sigue aceptando también una clave sin sellar.
 
 Holded permite 100 peticiones por minuto por clave. El kiosko se queda muy por debajo.
 
@@ -59,11 +59,11 @@ Holded permite 100 peticiones por minuto por clave. El kiosko se queda muy por d
 
 ## Seguridad y privacidad
 
-**Qué hace el Worker.** Sella las claves de Holded y devuelve únicamente el `id` y el nombre de cada empleado, y el nombre y la URL del logo de la empresa. No devuelve IBAN, número de la Seguridad Social, salario ni dirección, aunque Holded los envíe a la API. Lo único que guarda es la clave de sellado, en KV. No guarda claves de Holded ni escribe logs. Cloudflare, como plataforma, puede registrar peticiones según la configuración de tu cuenta.
+**Qué hace el Worker.** Sella las claves de Holded y devuelve únicamente el `id` y el nombre de cada empleado, y el nombre y la URL del logo de la empresa. No devuelve IBAN, número de la Seguridad Social, salario ni dirección, aunque Holded los envíe a la API. Lo único que guarda son las claves de sellado, en KV. No guarda claves de Holded ni escribe logs. Cloudflare, como plataforma, puede registrar peticiones según la configuración de tu cuenta.
 
-**Claves selladas.** La tablet no guarda la clave de Holded. El Worker la cifra con AES-256-GCM, con un IV aleatorio por sellado y el texto `holded-kiosk/v1` como datos adicionales autenticados, y la tablet guarda el resultado en `localStorage`. La clave de sellado de 256 bits la genera el Worker la primera vez que hace falta, la guarda en el KV `KIOSK_KEYS` y la mantiene en memoria. Un token sellado que no se puede descifrar (manipulado, sellado por otro Worker o con la clave de sellado perdida) recibe un 401 y el kiosko pide volver a introducir la clave de Holded.
+**Claves selladas.** Una tablet que ya ha cargado esta versión no guarda la clave de Holded (las que la guardaban en claro se tratan en [Actualizar una instalación existente](#actualizar-una-instalación-existente)). El Worker la cifra con AES-256-GCM, con un IV aleatorio por sellado y el texto `holded-kiosk/v1` como datos adicionales autenticados, y la tablet guarda el resultado en `localStorage`. Cada clave de sellado de 256 bits la genera el Worker la primera vez que hace falta, con un identificador aleatorio (`kid`), y la guarda en el KV `KIOSK_KEYS` como `sealing-key:<kid>`. Nunca se sobrescribe una clave guardada. Un puntero, `sealing-key-current`, indica qué `kid` usar al sellar, y cada token lleva el suyo. Un token sellado que no se puede descifrar (manipulado, de un `kid` que existe pero con otra clave, o con la clave de sellado perdida) recibe un 401 y el kiosko pide volver a introducir la clave de Holded. Un `kid` que todavía no se encuentra en KV (la propagación puede tardar cerca de un minuto) recibe un 503 y el kiosko avisa de que es temporal, sin pedir la clave.
 
-Qué arregla esto: copiar el token de la tablet ya no da acceso directo a Holded. Con `team:employees.read`, antes se podían leer IBAN, número de la Seguridad Social y salario de cada empleado. Ahora, desde la tablet, solo se alcanza lo que el Worker expone: `id` y nombre de los empleados, nombre y logo de la empresa y las acciones de fichaje.
+Qué arregla esto: copiar el token de la tablet ya no da acceso directo a Holded. Con `team:employees.read`, antes se podían leer IBAN, número de la Seguridad Social y salario de cada empleado. Ahora, desde la tablet, solo se alcanza lo que el Worker expone: `id` y nombre de los empleados, nombre y logo de la empresa y las acciones de fichaje. El sellado no deshace lo ya ocurrido: una clave que estuvo en claro en la tablet sigue comprometida hasta que se revoca.
 
 **Límite de peticiones.** El Worker aplica unas 120 peticiones por minuto por IP en `/api/*` y responde 429 al superarlo. Es un límite aproximado, el de la función de rate limiting de Cloudflare.
 
@@ -71,13 +71,24 @@ Qué arregla esto: copiar el token de la tablet ya no da acceso directo a Holded
 
 **Límites que debes conocer.**
 
-*   Quien tenga el token sellado puede usar tu Worker desde cualquier sitio, no solo desde la tablet: ver los nombres de los empleados y fichar entradas y salidas, dentro del límite de peticiones. El token sellado no caduca. Para invalidarlos todos, borra la clave `sealing-key-v1` del KV `KIOSK_KEYS`, vuelve a desplegar para que el Worker deje de conservarla en memoria y vuelve a introducir las claves. Para cortar el acceso de una clave concreta, revócala en Holded.
-*   La clave de Holded está en claro mientras se escribe y viaja en claro dentro de TLS hasta el Worker. Una tablet con una versión anterior del kiosko la sigue guardando sin sellar hasta que carga esta versión y el sellado funciona.
+*   Quien tenga el token sellado puede usar tu Worker desde cualquier sitio, no solo desde la tablet: ver los nombres de los empleados y fichar entradas y salidas, dentro del límite de peticiones. El token sellado no caduca. Para invalidarlos todos a propósito (por ejemplo, si se pierde una tablet), borra del KV `KIOSK_KEYS` todas las entradas `sealing-key:*` y la entrada `sealing-key-current`, espera un minuto a que se propague el borrado y vuelve a introducir las claves de Holded en cada tablet. Un Worker que ya tenga una clave en memoria la sigue aceptando hasta que se reinicie, así que no cuentes con que corte el acceso al instante. Revoca además la clave de Holded: es lo único que corta el acceso de verdad, también para una clave concreta.
+*   La clave de Holded está en claro mientras se escribe y viaja en claro dentro de TLS hasta el Worker. Una tablet con una versión anterior del kiosko la sigue guardando sin sellar hasta que carga esta versión y el sellado funciona, y entonces la clave en claro desaparece de la tablet pero no queda invalidada.
 *   Quien opera el Worker y su KV puede leer las claves: puede descifrar cualquier token con la clave de sellado y ve las claves en memoria al procesar cada petición.
-*   La clave de sellado se crea en la primera petición que la necesita. KV no ofrece "escribir si no existe" y es eventualmente consistente, así que dos regiones que sellen por primera vez a la vez, en los primeros segundos de vida del Worker, podrían quedarse con claves distintas. Si pasa, el kiosko muestra el aviso de volver a introducir la clave.
+*   KV no ofrece "escribir si no existe" y es eventualmente consistente. Por eso cada clave de sellado se guarda con su propio `kid` y nunca se sobrescribe: si dos regiones sellan por primera vez a la vez, cada una usa su clave y todas siguen siendo legibles. Como mucho, en el primer minuto tras el primerísimo sellado, una petición puede recibir un "inténtalo de nuevo en un minuto" hasta que la clave se propaga.
 *   No hay PIN por empleado. Cualquiera que tenga delante el kiosko puede fichar por cualquier otra persona.
 *   La URL del kiosko no tiene control de acceso. Quien la conozca puede abrirla y usar el Worker como pasarela con su propia clave de Holded, dentro del límite de peticiones.
 *   Usa una clave dedicada, solo con los permisos de la tabla.
+
+## Actualizar una instalación existente
+
+El sellado no puede deshacer que una clave haya estado en claro en la tablet. Tras actualizar:
+
+1.  Recarga cada tablet. Una tablet que no se ha recargado desde la actualización sigue guardando la clave en claro.
+2.  Revoca cada clave de API en Holded y entra una nueva en el kiosko, con "Cambiar token". La clave antigua pudo copiarse mientras estaba en claro.
+
+## Volver a una versión anterior
+
+No vuelvas nunca el Worker a una versión anterior al sellado cuando las tablets ya han sellado sus claves. Ese Worker reenvía la cadena sellada a Holded, todas las empresas fallan y las claves en claro ya no están en las tablets. Corrige hacia delante. El KV conserva las claves de sellado, así que volver a desplegar esta versión restablece el servicio. Volver atrás el frontend de Pages es inofensivo.
 
 ## Desarrollo local
 
@@ -112,7 +123,7 @@ Comprobaciones, desde la raíz: `npm run typecheck`, `npm test` y `npm run build
 | `ALLOWED_ORIGINS` | Variable del Worker | Sin definir | Orígenes separados por comas con acceso CORS a `/api/*`. Vacío, el Worker no concede acceso entre orígenes. Solo hace falta si el frontend se aloja en otro origen |
 | `HOLDED_API_BASE` | Variable del Worker | `https://api.holded.com` | URL base de la API de Holded. Solo se cambia para apuntar al mock |
 | `VITE_WORKER_BASE` | Variable de compilación del frontend | Vacío (mismo origen) | URL del Worker cuando el frontend se aloja aparte. Fija además el `connect-src` de la CSP a ese origen |
-| `KIOSK_KEYS` | Binding KV en `wrangler.toml` | Se crea al desplegar | Namespace donde el Worker guarda la clave de sellado. Se declara sin `id`: el botón de despliegue y `wrangler deploy` lo crean y los despliegues siguientes lo reutilizan. Sin él, `/api/seal` responde 503 y el kiosko sigue con claves sin sellar. En `wrangler dev` y en los tests es un KV local |
+| `KIOSK_KEYS` | Binding KV en `wrangler.toml` | Se crea al desplegar | Namespace donde el Worker guarda la clave de sellado. Se declara sin `id`: el botón de despliegue y `wrangler deploy` lo crean y los despliegues siguientes lo reutilizan. Sin él, `/api/seal` responde 503: las empresas con claves sin sellar siguen funcionando, pero no se pueden añadir empresas ni cambiar tokens. En `wrangler dev` y en los tests es un KV local |
 | `[[ratelimits]]` | `wrangler.toml` | `limit = 120`, `period = 60` | Peticiones permitidas por IP en el periodo, en segundos, con el binding `RATE_LIMITER` |
 
 El `wrangler.toml` de la raíz es neutro: Worker `holded-kiosk`, sin `ALLOWED_ORIGINS`. Scripts de la raíz: `build`, `deploy`, `dev`, `test`, `typecheck`.
@@ -130,7 +141,17 @@ npx wrangler deploy --name holded-proxy-worker \
 
 Ejecútalo después de `npm run build`.
 
-**Una vez, para el Worker que ya existe.** El primer despliegue con esta versión crea el namespace KV `holded-proxy-worker-kiosk-keys` y lo enlaza como `KIOSK_KEYS`. No hay que crear nada a mano ni cambiar el comando. El token de API que use el despliegue necesita el permiso Workers KV Storage (edit), que incluye el token por defecto de Workers Builds. Orden recomendado: despliega primero el Worker y después el frontend de Pages, porque un frontend nuevo contra un Worker viejo no puede sellar y falla al añadir una empresa. Las tablets sellan sus claves guardadas en su siguiente carga. No borres el namespace: invalidaría todos los tokens sellados.
+**Una vez, para el Worker que ya existe.** El primer despliegue con esta versión crea el namespace KV `holded-proxy-worker-kiosk-keys` y lo enlaza como `KIOSK_KEYS`. No hay que crear nada a mano ni cambiar el comando. El token de API que use el despliegue necesita el permiso Workers KV Storage (edit), que incluye el token por defecto de Workers Builds. Las tablets sellan sus claves guardadas en su siguiente carga.
+
+**Orden del despliegue.** Pages se despliega solo al hacer push a `main`. Despliega el Worker desde la rama antes de fusionar, y fusiona después:
+
+```bash
+npm run build
+npx wrangler deploy --name holded-proxy-worker \
+  --var "ALLOWED_ORIGINS:https://holdedkiosk.pages.dev,http://localhost:5173"
+```
+
+Si se hace al revés, en el hueco los kioscos existentes siguen funcionando con claves en claro, pero añadir una empresa o cambiar un token falla hasta que el Worker tenga `/api/seal`. No borres el namespace: invalidaría todos los tokens sellados.
 
  Con Workers Builds, el comando de compilación es `npm run build` y el comando de despliegue es la línea `npx wrangler deploy --name holded-proxy-worker --var "ALLOWED_ORIGINS:..."` de arriba, con tus orígenes. Un despliegue sin el paso de compilación falla, porque `frontend/dist` no está en git.
 
@@ -143,7 +164,7 @@ Despliegue desde un clon, sin el botón: `npm install`, `npx wrangler login` y `
 ## Limitaciones conocidas
 
 *   El estado "en pausa" que devuelve Holded no está documentado en la especificación de la API v2, que solo lista `running` y `done`. El Worker asume que sigue siendo `paused`, como en la v1.
-*   La creación automática del KV con `wrangler deploy` y con el botón de despliegue se ha comprobado en la documentación de Cloudflare y en el código de Wrangler 4.164, no contra una cuenta real. Si el despliegue falla en `[[kv_namespaces]]`, crea el namespace con `npx wrangler kv namespace create KIOSK_KEYS` y pon su `id` en `wrangler.toml`. Sin namespace, el kiosko sigue funcionando con claves sin sellar.
+*   La creación automática del KV con `wrangler deploy` y con el botón de despliegue se ha comprobado en la documentación de Cloudflare y en el código de Wrangler 4.164, no contra una cuenta real. Si el despliegue falla en `[[kv_namespaces]]`, crea el namespace con `npx wrangler kv namespace create KIOSK_KEYS` y pon su `id` en `wrangler.toml`. No borres el bloque: sin `KIOSK_KEYS`, las empresas con claves sin sellar siguen funcionando, pero no se pueden añadir empresas ni cambiar tokens, y los tokens ya sellados dejan de funcionar.
 *   El binding de rate limiting no se ha confirmado en el plan Free de Cloudflare. Si un despliegue falla en el bloque `[[ratelimits]]`, borra ese bloque de `wrangler.toml`. El Worker funciona sin él, sin límite de peticiones.
 *   El logo se sirve desde `app.holded.com` a partir de una ruta que devuelve Holded. Ese host se ha observado, no está documentado.
 *   El Worker lee como máximo 5 páginas de 200 fichajes por consulta y 25 páginas de empleados. En una empresa muy grande, los fichajes más antiguos de la ventana consultada pueden quedar fuera.
