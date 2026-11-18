@@ -1,7 +1,0 @@
-name = "holded-proxy-worker"
-main = "src/index.ts"
-compatibility_date = "2026-11-01"
-workers_dev = true
-
-[vars]
-ALLOWED_ORIGINS = "https://holdedkiosk.pages.dev,http://localhost:5173"

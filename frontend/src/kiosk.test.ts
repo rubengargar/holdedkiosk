@@ -335,4 +335,30 @@ describe('accounts', () => {
     expect(kiosk.activeState.value?.employees).toEqual([ANA, BEA])
     expect(take()).toEqual(['GET /api/employees'])
   })
+
+  it('sets and removes the logo of one account only', async () => {
+    seedAccounts('a', 'b')
+    const kiosk = await mountKiosk()
+
+    kiosk.setLogo('b', 'data:image/png;base64,AAAA')
+    expect(kiosk.accounts.value.map(a => a.logo)).toEqual([undefined, 'data:image/png;base64,AAAA'])
+
+    kiosk.setLogo('b', undefined)
+    expect('logo' in kiosk.accounts.value[1]).toBe(false)
+  })
+
+  it('switches to the next account when the active one is deleted', async () => {
+    seedAccounts('a', 'b', 'c')
+    const kiosk = await mountKiosk()
+    kiosk.setActive('b')
+
+    kiosk.deleteAccount('b')
+    expect(kiosk.activeId.value).toBe('c')
+
+    kiosk.deleteAccount('c')
+    expect(kiosk.activeId.value).toBe('a')
+
+    kiosk.deleteAccount('a')
+    expect(kiosk.activeId.value).toBeNull()
+  })
 })

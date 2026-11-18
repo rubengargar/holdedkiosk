@@ -14,7 +14,9 @@ The worker does not store tokens. The browser sends the token of the active comp
 
 ## Features
 
-*   Several Holded companies on one kiosk. With two or more companies, a row of tabs under the header switches between them. Each company keeps its own employee list, hidden employees and loaded data.
+*   Several Holded companies on one kiosk. Round avatars at the top left of the header switch between them with one tap, even with a single company. Each company keeps its own employee list, hidden employees, logo and loaded data.
+*   Per-company logo. Pick an image in the settings panel; it is downscaled in the browser to fit 128x128 and stored in `localStorage` as a small data URL. Without a logo the avatar shows the company's initials on a colour derived from its id. "Quitar logo" removes it. No network call is involved.
+*   Per-company settings. The settings panel shows only the active company: rename, logo, token, hide/show employees and delete. Switch to another company to edit it. A separate "Kiosko" section holds the kiosk title and "Añadir empresa".
 *   Lists employees with an active contract and no termination date.
 *   Hide employees, per company.
 *   Change the Holded token of a company from the settings panel. The new token is validated with one employee request before it replaces the old one, and the hidden employees are kept.
@@ -60,19 +62,14 @@ npm run deploy
 
 Wrangler prints the worker URL, for example `https://holded-proxy-worker.your-subdomain.workers.dev`. The frontend needs it.
 
-Set `ALLOWED_ORIGINS` in the `[vars]` block of both `wrangler.toml` files (see below) to the comma-separated list of origins that may call the worker. The worker answers CORS requests only for those origins. The default is `https://holdedkiosk.pages.dev,http://localhost:5173`. Add the origin where you host the frontend.
+Set `ALLOWED_ORIGINS` in the `[vars]` block of the `wrangler.toml` at the repository root to the comma-separated list of origins that may call the worker. The worker answers CORS requests only for those origins. The default is `https://holdedkiosk.pages.dev,http://localhost:5173`. Add the origin where you host the frontend.
 
 ```toml
 [vars]
 ALLOWED_ORIGINS = "https://your-kiosk.pages.dev,http://localhost:5173"
 ```
 
-There are two Wrangler configs and they must be kept in sync (same `compatibility_date`, `workers_dev` and `[vars]`):
-
-*   `worker/wrangler.toml` is used by every command run from `worker/`: `npm run deploy`, `npm run dev` and `npx wrangler dev`.
-*   `wrangler.toml` at the repository root has `main = "worker/src/index.ts"` and is used by Cloudflare Workers Builds, which deploys from the root.
-
-If only one of them has the right `ALLOWED_ORIGINS`, the other deploy answers without a CORS origin and the browser blocks the kiosk.
+There is one Wrangler config, `wrangler.toml` at the repository root, with `main = "worker/src/index.ts"`. Cloudflare Workers Builds reads it from the root, and the `dev` and `deploy` scripts in `worker/` pass `--config ../wrangler.toml` so they use the same file.
 
 To deploy from Cloudflare Workers Builds, connect the repository and use these settings from the repository root:
 
@@ -117,7 +114,7 @@ node worker/test/mock-holded.mjs 8788
 # terminal 2: worker on port 8787, pointed at the mock
 cd worker
 npm install
-npx wrangler dev --var HOLDED_API_BASE:http://127.0.0.1:8788
+npx wrangler dev --config ../wrangler.toml --var HOLDED_API_BASE:http://127.0.0.1:8788
 
 # terminal 3: frontend on port 5173
 cd frontend

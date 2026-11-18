@@ -150,10 +150,21 @@ export function useKiosk() {
     accounts.value = accounts.value.map(a => (a.id === id ? { ...a, name: trimmed } : a))
   }
 
+  function setLogo(id: string, logo: string | undefined) {
+    accounts.value = accounts.value.map(a => {
+      if (a.id !== id) return a
+      const { logo: _previous, ...rest } = a
+      return logo ? { ...rest, logo } : rest
+    })
+  }
+
   function deleteAccount(id: string) {
+    const index = accounts.value.findIndex(a => a.id === id)
     accounts.value = accounts.value.filter(a => a.id !== id)
     delete states[id]
-    if (activeId.value === id) activeId.value = accounts.value[0]?.id ?? null
+    if (activeId.value === id) {
+      activeId.value = accounts.value[Math.min(index, accounts.value.length - 1)]?.id ?? null
+    }
   }
 
   function setActive(id: string) {
@@ -248,6 +259,7 @@ export function useKiosk() {
     addAccount,
     changeToken,
     renameAccount,
+    setLogo,
     deleteAccount,
     setActive,
     toggleHidden,

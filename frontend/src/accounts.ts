@@ -3,6 +3,7 @@ export interface Account {
   name: string
   token: string
   hiddenEmployeeIds: string[]
+  logo?: string
 }
 
 export type KeyValueStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
@@ -34,7 +35,8 @@ function isAccount(value: unknown): value is Account {
     typeof v.name === 'string' &&
     typeof v.token === 'string' &&
     Array.isArray(v.hiddenEmployeeIds) &&
-    v.hiddenEmployeeIds.every(id => typeof id === 'string')
+    v.hiddenEmployeeIds.every(id => typeof id === 'string') &&
+    (v.logo === undefined || typeof v.logo === 'string')
   )
 }
 
