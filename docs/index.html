@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Holded Kiosk</title>
+<meta name="description" content="Kiosko de fichaje para tablet que usa Holded. Cada persona toca su nombre para fichar entrada, salida, pausa o reanudar. Se despliega en tu propia cuenta de Cloudflare.">
+<meta name="color-scheme" content="light dark">
+<style>
+:root {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --ink: #1b2430;
+  --muted: #52606f;
+  --rule: #d5dae1;
+  --accent: #1d4ed8;
+  --accent-ink: #ffffff;
+  --ok: #15803d;
+  --warn-bg: #fff6dc;
+  --warn-rule: #b7791f;
+  --bezel: #1b2430;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Charter, "Bitstream Charter", Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11161d;
+    --surface: #1a212b;
+    --ink: #e8ecf1;
+    --muted: #a3afbd;
+    --rule: #2f3947;
+    --accent: #7aa2ff;
+    --accent-ink: #0b1220;
+    --ok: #4ade80;
+    --warn-bg: #2a2314;
+    --warn-rule: #d9a441;
+    --bezel: #05080c;
+  }
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 1.0625rem/1.6 var(--sans);
+}
+a { color: var(--accent); text-underline-offset: 0.18em; }
+a:focus-visible, .btn:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+code { font: 0.9em var(--mono); overflow-wrap: anywhere; }
+.wrap { max-width: 70rem; margin: 0 auto; padding: 0 1rem; }
+@media (min-width: 40rem) { .wrap { padding: 0 2rem; } }
+
+.skip { position: absolute; left: -999px; top: 0; background: var(--surface); padding: 0.5rem 1rem; z-index: 10; }
+.skip:focus { left: 0.5rem; top: 0.5rem; }
+
+header.site { border-bottom: 1px solid var(--rule); }
+header.site .wrap { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; align-items: baseline; justify-content: space-between; padding-top: 1rem; padding-bottom: 1rem; }
+.mark { font: 700 1.05rem var(--serif); letter-spacing: 0.01em; color: var(--ink); text-decoration: none; }
+header.site nav { display: flex; gap: 1.25rem; font-size: 0.95rem; }
+header.site nav a { color: var(--muted); }
+
+.hero { padding: 3rem 0 3.5rem; display: grid; gap: 2.5rem; }
+@media (min-width: 60rem) {
+  .hero { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); align-items: center; padding: 4.5rem 0 5rem; gap: 4rem; }
+}
+h1 { font: 700 clamp(2.1rem, 6vw, 3.4rem)/1.08 var(--serif); letter-spacing: -0.015em; margin: 0 0 1.25rem; }
+.lede { font-size: 1.2rem; color: var(--muted); max-width: 34rem; margin: 0 0 2rem; }
+.cta { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; align-items: center; }
+.btn {
+  display: inline-block; background: var(--accent); color: var(--accent-ink);
+  font-weight: 600; text-decoration: none; padding: 0.8rem 1.35rem; border-radius: 6px;
+}
+.btn:hover { filter: brightness(1.08); }
+.cta .alt { font-weight: 600; }
+.fineprint { margin: 1.25rem 0 0; font-size: 0.9rem; color: var(--muted); max-width: 32rem; }
+
+.tablet {
+  margin: 0; background: var(--bezel); border-radius: 22px; padding: 14px;
+  box-shadow: 0 1px 0 var(--rule), 0 18px 40px -18px rgba(0, 0, 0, 0.45);
+}
+.tablet img { display: block; width: 100%; height: auto; border-radius: 10px; }
+
+section { padding: 3rem 0; border-top: 1px solid var(--rule); }
+h2 { font: 700 clamp(1.5rem, 4vw, 2rem)/1.2 var(--serif); margin: 0 0 1.5rem; letter-spacing: -0.01em; }
+h3 { font: 700 1.05rem/1.3 var(--sans); margin: 0 0 0.35rem; }
+p { margin: 0 0 1rem; max-width: 42rem; }
+
+.does { display: grid; gap: 1.5rem 3rem; margin: 0; padding: 0; list-style: none; }
+@media (min-width: 40rem) { .does { grid-template-columns: 1fr 1fr; } }
+.does p { margin: 0; color: var(--muted); }
+
+.steps { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 1.75rem; max-width: 46rem; }
+.steps li { counter-increment: step; display: grid; grid-template-columns: 2.5rem 1fr; gap: 0 0.5rem; }
+.steps li::before { content: counter(step); font: 700 1.6rem/1.2 var(--serif); color: var(--accent); }
+.steps p { margin: 0; color: var(--muted); }
+
+.scroll { overflow-x: auto; margin: 0 0 1rem; }
+table { border-collapse: collapse; width: 100%; max-width: 46rem; font-size: 0.97rem; }
+th, td { text-align: left; padding: 0.6rem 0.75rem 0.6rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+@media (max-width: 39.99rem) {
+  thead { position: absolute; left: -999px; }
+  tr, td { display: block; }
+  tr { padding: 0.6rem 0; border-bottom: 1px solid var(--rule); }
+  td { border: 0; padding: 0.1rem 0; }
+  td:nth-child(2)::before { content: "Obligatorio: "; color: var(--muted); }
+}
+th { font-weight: 600; color: var(--muted); font-size: 0.9rem; }
+
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin: 0 0 1.5rem; padding: 0; list-style: none; font-weight: 600; }
+.flow li { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 0.45rem 0.8rem; }
+.flow li.arrow { background: none; border: 0; padding: 0; color: var(--muted); font-weight: 400; }
+
+.limits { background: var(--warn-bg); border-left: 4px solid var(--warn-rule); padding: 1.25rem 1.25rem 0.5rem; margin: 1.75rem 0 0; max-width: 46rem; }
+.limits h3 { font-size: 1.1rem; margin-bottom: 0.75rem; }
+.limits ul { padding-left: 1.2rem; margin: 0 0 0.75rem; }
+.limits li { margin-bottom: 0.6rem; }
+
+.shots { display: grid; gap: 2rem; }
+@media (min-width: 48rem) { .shots { grid-template-columns: 1fr 1fr; } }
+.shots figure { margin: 0; }
+.shots img { display: block; width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 8px; }
+.shots figcaption { margin-top: 0.6rem; font-size: 0.95rem; color: var(--muted); }
+
+footer { border-top: 1px solid var(--rule); padding: 2rem 0 3rem; font-size: 0.93rem; color: var(--muted); }
+footer p { max-width: 46rem; }
+</style>
+</head>
+<body>
+<a class="skip" href="#contenido">Saltar al contenido</a>
+
+<header class="site">
+  <div class="wrap">
+    <a class="mark" href="#top">Holded Kiosk</a>
+    <nav aria-label="Principal">
+      <a href="#despliegue">Despliegue</a>
+      <a href="#seguridad">Seguridad y límites</a>
+      <a href="https://github.com/rubengargar/holdedkiosk">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="contenido">
+  <div class="wrap" id="top">
+    <div class="hero">
+      <div>
+        <h1>Un kiosko de fichaje para Holded</h1>
+        <p class="lede">Una tablet compartida en la oficina. Cada persona toca su nombre para fichar entrada, salida, pausa o reanudar. Lo despliegas en tu propia cuenta de Cloudflare.</p>
+        <div class="cta">
+          <a class="btn" href="https://deploy.workers.cloudflare.com/?url=https://github.com/rubengargar/holdedkiosk">Desplegar en Cloudflare</a>
+          <a class="alt" href="https://github.com/rubengargar/holdedkiosk">Ver el código en GitHub</a>
+        </div>
+        <p class="fineprint">Código abierto, licencia MIT. Necesitas una cuenta de Cloudflare, una de GitHub y una clave de API de Holded.</p>
+      </div>
+      <figure class="tablet">
+        <img src="img/board.png" width="820" height="640" alt="Tablero del kiosko: cuatro empleados con su tiempo de hoy y los botones Entrada, Pausa, Reanudar y Salida. Arriba, el resumen Todo 4, Dentro 2, Fuera 2.">
+      </figure>
+    </div>
+  </div>
+
+  <section aria-labelledby="que-hace">
+    <div class="wrap">
+      <h2 id="que-hace">Qué hace</h2>
+      <ul class="does">
+        <li>
+          <h3>Ficha en Holded</h3>
+          <p>Entrada, salida, pausa y reanudar por empleado, con el tiempo trabajado hoy en cada fila.</p>
+        </li>
+        <li>
+          <h3>Varias empresas en una tablet</h3>
+          <p>Cada empresa de Holded tiene su lista de empleados, sus empleados ocultos y su logo. Se cambia de una a otra con un toque.</p>
+        </li>
+        <li>
+          <h3>Solo a quien corresponde</h3>
+          <p>Lista a los empleados con contrato vigente y sin fecha de baja. Puedes ocultar a quien no deba aparecer.</p>
+        </li>
+        <li>
+          <h3>Pensado para pantallas táctiles</h3>
+          <p>Búsqueda por nombre, resumen de quién está dentro y fuera, y un diseño que se adapta a un iPad Mini.</p>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="despliegue" aria-labelledby="despliegue-t">
+    <div class="wrap">
+      <h2 id="despliegue-t">Despliegue en tres pasos</h2>
+      <ol class="steps">
+        <li>
+          <div>
+            <h3>Pulsa el botón de despliegue</h3>
+            <p>Clona el repositorio en tu GitHub y despliega un Worker en tu cuenta de Cloudflare. Nada pasa por el Worker ni por el dominio del autor.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <h3>Crea una clave de API en Holded</h3>
+            <p>Con los permisos de la tabla de abajo. Mejor una clave dedicada al kiosko.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <h3>Abre el kiosko y añade la empresa</h3>
+            <p>Abre la URL del Worker en la tablet, pulsa el engranaje y pega la clave. El kiosko la valida cargando la lista de empleados.</p>
+          </div>
+        </li>
+      </ol>
+      <p style="margin-top:2rem"><a class="btn" href="https://deploy.workers.cloudflare.com/?url=https://github.com/rubengargar/holdedkiosk">Desplegar en Cloudflare</a></p>
+
+      <h3 style="margin-top:2.5rem">Permisos de la clave</h3>
+      <div class="scroll">
+        <table>
+          <thead><tr><th scope="col">Permiso</th><th scope="col">Obligatorio</th><th scope="col">Para qué</th></tr></thead>
+          <tbody>
+            <tr><td><code>team:employees.read</code></td><td>Sí</td><td>Listar empleados</td></tr>
+            <tr><td><code>team:time-tracking.read</code></td><td>Sí</td><td>Leer los fichajes del día</td></tr>
+            <tr><td><code>team:time-tracking.write</code></td><td>Sí</td><td>Fichar entrada, salida y pausas</td></tr>
+            <tr><td><code>account:info.read</code></td><td>No</td><td>Nombre y logo de la empresa. Sin él se muestran las iniciales</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="como-t">
+    <div class="wrap">
+      <h2 id="como-t">Cómo funciona</h2>
+      <ul class="flow" aria-label="Flujo de peticiones">
+        <li>Tablet</li><li class="arrow" aria-hidden="true">&rarr;</li>
+        <li>Tu Worker de Cloudflare</li><li class="arrow" aria-hidden="true">&rarr;</li>
+        <li>API de Holded v2</li>
+      </ul>
+      <p>El Worker sirve el frontend y atiende <code>/api/*</code> desde el mismo origen. La tablet envía la clave de la empresa activa en cada petición y el Worker la reenvía a Holded.</p>
+      <p>Holded permite 100 peticiones por minuto por clave. El kiosko consulta los fichajes una vez cada 2 minutos por empresa activa, y solo mientras la página está visible. Cada acción de fichaje es una sola petición.</p>
+    </div>
+  </section>
+
+  <section id="seguridad" aria-labelledby="seg-t">
+    <div class="wrap">
+      <h2 id="seg-t">Seguridad y límites</h2>
+      <p>El Worker devuelve únicamente el id y el nombre de cada empleado, y el nombre y la URL del logo de la empresa. No devuelve IBAN, número de la Seguridad Social, salario ni dirección. Su código no guarda datos ni escribe logs. Aplica unas 120 peticiones por minuto por IP, un límite aproximado, y sirve el frontend con una Content-Security-Policy restrictiva y cabeceras de seguridad.</p>
+      <div class="limits">
+        <h3>Lo que debes saber antes de instalarlo</h3>
+        <ul>
+          <li>La clave de API se guarda en el <code>localStorage</code> de la tablet, en texto plano y sin PIN. Cualquiera con acceso al navegador puede leerla.</li>
+          <li>Con el permiso <code>team:employees.read</code>, esa clave puede leer los registros completos de los empleados directamente en la API de Holded. Usa una clave dedicada, solo con los permisos de la tabla, y un dispositivo que controles.</li>
+          <li>No hay PIN por empleado. Cualquiera que tenga delante el kiosko puede fichar por cualquier otra persona.</li>
+          <li>La URL del kiosko no tiene control de acceso.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="pantallas-t">
+    <div class="wrap">
+      <h2 id="pantallas-t">Configuración y varias empresas</h2>
+      <div class="shots">
+        <figure>
+          <img src="img/settings.png" width="820" height="760" loading="lazy" alt="Panel de configuración con el selector de empresas Acme Estudio y Nordika, el campo de nombre, el cambio de token y la lista de empleados con botón Ocultar.">
+          <figcaption>El panel de configuración: selector de empresa, cambio de token y empleados ocultos.</figcaption>
+        </figure>
+        <figure>
+          <img src="img/add-company.png" width="820" height="760" loading="lazy" alt="Formulario Añadir empresa con los campos de nombre y token de Holded, y la lista de permisos que necesita el token.">
+          <figcaption>Añadir una empresa. El nombre es opcional y, vacío, se toma de Holded.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Proyecto independiente. No está afiliado a Holded ni cuenta con su respaldo. "Holded" es una marca de su titular.</p>
+    <p>Licencia MIT. <a href="https://github.com/rubengargar/holdedkiosk">Código en GitHub</a>.</p>
+  </div>
+</footer>
+</body>
+</html>

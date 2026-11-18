@@ -1,125 +1,138 @@
 # Holded Kiosk
 
-A kiosk for clocking employees in and out of Holded. Workers tap their name to clock in or out. A Vue 3 frontend talks to a Cloudflare Worker, which proxies the Holded API.
-
-## Screenshot
-
-![Holded Kiosk Screenshot](/screenshot.png)
-
-## Security note
-
-Holded API tokens are stored in the browser's `localStorage`, one per company, in plain text. There is no PIN or password protecting them, so anyone with access to the kiosk browser can read them. Use tokens with only the scopes listed below, and run the kiosk on a device you control.
-
-The worker does not store tokens. The browser sends the token of the active company in the `X-Holded-API-Key` header on each request, and the worker forwards it to Holded as a Bearer token. The worker returns only employee id and name, never the other employee fields Holded stores (IBAN, social security number, salary, address).
-
-## Features
-
-*   Several Holded companies on one kiosk. Round avatars at the top left of the header switch between them with one tap, even with a single company. Each company keeps its own employee list, hidden employees, logo and loaded data.
-*   Automatic company name and logo. The worker reads them from Holded (`GET /api/account`) and returns only `name` (the trade name when set) and `logoUrl`. The logo is shown in the avatar and is never uploaded by hand. Without the optional `account:info.read` scope, or when Holded has no logo or the image fails to load, the avatar shows the company's initials on a colour derived from its id. The name field when adding a company is optional: a name you type always wins, an empty one takes the Holded name, and "Empresa N" is the fallback. The logo URL is built from a path that Holded returns, on `app.holded.com`. That host is observed behaviour, not documented.
-*   Per-company settings. The settings panel starts with a company selector (one item per company and a round "+" button). The selected company is the active one and its settings are shown below: rename, "Actualizar datos de Holded", token, hide/show employees and delete. Select another company to edit it. "+" swaps the panel body for the "Añadir empresa" form, with "Cancelar" to go back. A "Kiosko" section with the kiosk title closes the company view.
-*   Lists employees with an active contract and no termination date.
-*   Hide employees, per company.
-*   Change the Holded token of a company from the settings panel. The new token is validated with one employee request before it replaces the old one, and the hidden employees are kept.
-*   Clock-in, clock-out, pause and resume per employee, with the time tracked today. Time keeps counting while paused. A session that started before midnight (a night shift) counts only the hours since midnight in today's total.
-*   A failed clock action shows its error until the next action or until it is dismissed, and refreshes that company's times once so the row reflects the real state.
-*   Search, colored avatars, and a Todo / Dentro / Fuera summary.
-*   Responsive layout for touchscreens such as an iPad Mini.
-*   Legacy single-token installs (`holded_token`, `hidden_employee_ids` in `localStorage`) migrate to one company automatically.
-
-### Holded API usage
-
-Holded allows 100 requests per minute per API key. The kiosk keeps well under that:
-
-*   The employee list is fetched when a company is added (this also validates the token), on first view after page load, when it is older than 15 minutes at poll time, and on the "Actualizar" button. It is not fetched on every poll.
-*   Times are fetched with one request that returns all employees' entries for the day. The kiosk polls every 2 minutes, only for the active company and only while the page is visible. Switching company, returning to the page and polling refresh times only when they are older than 30 seconds.
-*   The company name and logo are requested once when a company is added, once when its token is changed, once the first time an existing company without them is synced, and when you press "Actualizar datos de Holded" in its settings. Never on polls. A failure (for example a missing scope) never blocks adding the company, and it is not retried. The button refreshes the logo, and the name only while it is still an automatic "Empresa N".
-*   Clocking in, out, pausing or resuming sends one request and no follow-up reads. The local state is updated from the result and the next poll reconciles it.
-*   The tracked time shown on each row is computed in the browser once a minute.
-*   On a 429 response the kiosk shows a message and keeps the data already on screen.
-
-## Project structure
-
-*   `frontend/`: Vue 3 + Vite + Tailwind app.
-*   `worker/`: Cloudflare Worker that proxies the Holded API (v2) and serves the built frontend.
-
-## Prerequisites
-
-*   [Node.js](https://nodejs.org/) 22.12 or later (required by the worker's Wrangler and Vitest).
-*   A Holded account with an API key. The worker uses Holded API v2 and sends the key as `Authorization: Bearer <key>`. The key needs these scopes:
-    *   `team:employees.read`
-    *   `team:time-tracking.read`
-    *   `team:time-tracking.write`
-    *   `account:info.read` (optional): company name and logo. Without it the company shows its initials.
-
-## Setup and deployment
-
-### One Worker for everything
-
-The Worker serves the built frontend as static assets and the API under `/api/*` from the same origin, so there is no Pages project, no CORS and no `VITE_WORKER_BASE`.
+Un kiosko de fichaje para tablet que usa Holded: cada persona toca su nombre para fichar entrada, salida, pausa o reanudar.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/rubengargar/holdedkiosk)
 
-Or from a clone, with Node 22.12 or later:
+![Tablero del kiosko con cuatro empleados, sus tiempos de hoy y los botones de fichaje](docs/img/board.png)
 
-```bash
-npm install
-npx wrangler login
-npm run deploy
+**In English.** Holded Kiosk is a self-hosted clock-in kiosk for [Holded](https://www.holded.com) (Spanish business software). Staff tap their name on a shared tablet to clock in, clock out, pause and resume. A Cloudflare Worker serves the Vue frontend and proxies Holded API v2. The deploy button clones the repository into your GitHub account and deploys the Worker on your Cloudflare account. The Worker stores nothing. The Holded API key lives in the tablet's `localStorage` in plain text, and there is no per-employee PIN. The sections on security and limits below apply in full. Documentation is in Spanish.
+
+## Qué hace
+
+*   Ficha entrada, salida, pausa y reanudación por empleado. Muestra el tiempo trabajado hoy.
+*   Admite varias empresas de Holded en un mismo kiosko. Cada una tiene su lista de empleados, sus empleados ocultos y su logo.
+*   Lista a los empleados con contrato vigente y sin fecha de baja. Puedes ocultar a quien no deba aparecer.
+*   Toma el nombre y el logo de la empresa de Holded, si la clave tiene el permiso opcional.
+*   Busca por nombre y resume cuántos hay en total, dentro y fuera.
+*   Se adapta a pantallas táctiles, por ejemplo un iPad Mini.
+
+## Despliegue en tres pasos
+
+1.  **Pulsa el botón "Deploy to Cloudflare".** Clona este repositorio en tu GitHub y despliega un Worker en tu cuenta de Cloudflare. Nada pasa por el Worker ni por el dominio del autor.
+2.  **Crea una clave de API en Holded** con los permisos de la tabla.
+3.  **Abre la URL del Worker en la tablet**, pulsa el engranaje y añade la empresa con esa clave. El kiosko la valida cargando la lista de empleados.
+
+| Permiso | Obligatorio | Para qué |
+| --- | --- | --- |
+| `team:employees.read` | Sí | Listar empleados |
+| `team:time-tracking.read` | Sí | Leer los fichajes del día |
+| `team:time-tracking.write` | Sí | Fichar entrada, salida y pausas |
+| `account:info.read` | No | Nombre y logo de la empresa. Sin él se muestran las iniciales |
+
+![Panel de configuración con el selector de empresas, el cambio de token y la lista de empleados ocultables](docs/img/settings.png)
+
+Para añadir otra empresa, pulsa "+" en el selector del panel de configuración. El nombre es opcional: si lo dejas vacío, se usa el de Holded.
+
+![Formulario para añadir una empresa, con la lista de permisos que necesita el token](docs/img/add-company.png)
+
+## Cómo funciona
+
+```mermaid
+flowchart LR
+    T["Tablet (navegador)"] -->|"/api/* con X-Holded-API-Key"| W["Tu Worker de Cloudflare"]
+    W -->|"Authorization: Bearer"| H["API de Holded v2"]
+    W -.->|"sirve el frontend"| T
 ```
 
-`npm install` at the repository root also installs `frontend/` and `worker/`. `npm run deploy` builds the frontend and runs `wrangler deploy` with the root `wrangler.toml`. That file is neutral: Worker name `holded-kiosk`, no `ALLOWED_ORIGINS`, a rate limit of 120 requests per 60 seconds per IP on `/api/*`.
+El Worker sirve el frontend compilado y atiende `/api/*` desde el mismo origen, así que no hay CORS ni proyecto de Pages. La tablet envía la clave de la empresa activa en la cabecera `X-Holded-API-Key` y el Worker la reenvía a Holded como Bearer.
 
-`ALLOWED_ORIGINS` is optional. Unset or empty, the Worker grants no cross-origin access. Set it (comma-separated origins) only when the frontend is hosted on another origin.
+Holded permite 100 peticiones por minuto por clave. El kiosko se queda muy por debajo.
 
-Root scripts: `npm run build`, `dev` (build, then `wrangler dev`), `test`, `typecheck`.
+*   Cada 2 minutos hace una consulta de fichajes por empresa activa, y solo mientras la página está visible. Esa única petición devuelve los fichajes de todos los empleados.
+*   La lista de empleados se pide al añadir la empresa, en la primera vista tras cargar la página, cuando tiene más de 15 minutos y con el botón "Actualizar". No se pide en cada consulta.
+*   Cada acción de fichaje envía una petición y ninguna lectura posterior. La siguiente consulta concilia el estado.
+*   Nombre y logo se piden al añadir la empresa, al cambiar su token, al sincronizar por primera vez una empresa que no los tiene y con "Actualizar datos de Holded". Nunca en las consultas periódicas.
+*   Ante un 429, el kiosko muestra un aviso y mantiene los datos que ya tenía en pantalla.
 
-### Frontend on its own host (optional)
+## Seguridad y privacidad
 
-Build `frontend/` with `VITE_WORKER_BASE` set to the Worker URL and host `frontend/dist` anywhere, for example Cloudflare Pages (root directory `frontend`, build command `npm run build`, output `dist`). Add that origin to the Worker's `ALLOWED_ORIGINS`. The build writes a `_headers` file whose Content-Security-Policy allows `connect-src` to that Worker origin only.
+**Qué hace el Worker.** Devuelve únicamente el `id` y el nombre de cada empleado, y el nombre y la URL del logo de la empresa. No devuelve IBAN, número de la Seguridad Social, salario ni dirección, aunque Holded los envíe a la API. El código del Worker no guarda datos ni escribe logs. Cloudflare, como plataforma, puede registrar peticiones según la configuración de tu cuenta.
 
-### Maintainer deploy
+**Límite de peticiones.** El Worker aplica unas 120 peticiones por minuto por IP en `/api/*` y responde 429 al superarlo. Es un límite aproximado, el de la función de rate limiting de Cloudflare.
 
-The production kiosk is a Cloudflare Pages project plus the Worker `holded-proxy-worker`. The repository config is neutral, so production supplies its own name and origins at deploy time:
+**Cabeceras.** El frontend se sirve con una Content-Security-Policy restrictiva (`script-src 'self'`, `frame-ancestors 'none'`, imágenes solo de `self` y `app.holded.com`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` y una Permissions-Policy que desactiva cámara, micrófono y geolocalización. Las respuestas de la API llevan `Cache-Control: no-store`.
+
+**Límites que debes conocer.**
+
+*   La clave de API se guarda en el `localStorage` de la tablet, en texto plano y sin PIN. Cualquiera con acceso al navegador de la tablet puede leerla.
+*   Con el permiso `team:employees.read`, esa clave puede leer los registros completos de los empleados directamente en la API de Holded, no solo los campos que muestra el kiosko. Usa una clave dedicada, solo con los permisos de la tabla, y un dispositivo que controles.
+*   No hay PIN por empleado. Cualquiera que tenga delante el kiosko puede fichar por cualquier otra persona.
+*   La URL del kiosko no tiene control de acceso. Quien la conozca puede abrirla y usar el Worker como pasarela con su propia clave de Holded, dentro del límite de peticiones.
+
+## Desarrollo local
+
+Con Node.js 22.12 o superior, en la raíz del repositorio:
+
+```bash
+npm install     # instala también frontend/ y worker/
+npm run dev     # compila el frontend y arranca wrangler dev
+```
+
+Para trabajar sin cuenta de Holded, `worker/test/mock-holded.mjs` hace de Holded. El mock acepta cualquier clave que empiece por `key-`.
+
+```bash
+# terminal 1: Holded simulado en el puerto 8788
+node worker/test/mock-holded.mjs 8788
+
+# terminal 2: Worker en el puerto 8787, apuntando al mock
+npx wrangler dev --var HOLDED_API_BASE:http://127.0.0.1:8788
+
+# terminal 3: frontend en el puerto 5173, con /api redirigido al Worker
+npm --prefix frontend run dev
+```
+
+Añade una empresa con un token como `key-demo`. Usa `key-otra` u otro valor que empiece por `key-` para una segunda empresa.
+
+Comprobaciones, desde la raíz: `npm run typecheck`, `npm test` y `npm run build`.
+
+## Configuración
+
+| Ajuste | Dónde | Valor por defecto | Descripción |
+| --- | --- | --- | --- |
+| `ALLOWED_ORIGINS` | Variable del Worker | Sin definir | Orígenes separados por comas con acceso CORS a `/api/*`. Vacío, el Worker no concede acceso entre orígenes. Solo hace falta si el frontend se aloja en otro origen |
+| `HOLDED_API_BASE` | Variable del Worker | `https://api.holded.com` | URL base de la API de Holded. Solo se cambia para apuntar al mock |
+| `VITE_WORKER_BASE` | Variable de compilación del frontend | Vacío (mismo origen) | URL del Worker cuando el frontend se aloja aparte. Fija además el `connect-src` de la CSP a ese origen |
+| `[[ratelimits]]` | `wrangler.toml` | `limit = 120`, `period = 60` | Peticiones permitidas por IP en el periodo, en segundos, con el binding `RATE_LIMITER` |
+
+El `wrangler.toml` de la raíz es neutro: Worker `holded-kiosk`, sin `ALLOWED_ORIGINS`. Scripts de la raíz: `build`, `deploy`, `dev`, `test`, `typecheck`.
+
+Para alojar el frontend en otro sitio, compílalo con `VITE_WORKER_BASE` apuntando al Worker, publica `frontend/dist` y añade ese origen a `ALLOWED_ORIGINS`.
+
+## Despliegue del mantenedor
+
+El kiosko de producción es un proyecto de Cloudflare Pages más el Worker `holded-proxy-worker`. La configuración del repositorio es neutra, así que producción aporta su nombre y sus orígenes al desplegar:
 
 ```bash
 npx wrangler deploy --name holded-proxy-worker \
   --var "ALLOWED_ORIGINS:https://holdedkiosk.pages.dev,http://localhost:5173"
 ```
 
-Run it after `npm run build`. If the Worker is built by Workers Builds, set its deploy command to that line. Pages keeps its settings: root directory `frontend`, build command `npm run build`, output `dist`, and `VITE_WORKER_BASE` set to the Worker URL.
+Ejecútalo después de `npm run build`. Si el Worker se compila con Workers Builds, pon esa línea como comando de despliegue. Pages conserva su configuración: directorio raíz `frontend`, comando de compilación `npm run build`, salida `dist` y `VITE_WORKER_BASE` con la URL del Worker.
 
-## Local development against the mock
+Despliegue desde un clon, sin el botón: `npm install`, `npx wrangler login` y `npm run deploy`.
 
-`worker/test/mock-holded.mjs` stands in for Holded, so you can develop without a real account. Any API key starting with `key-` is accepted by the mock.
+## Limitaciones conocidas
 
-```bash
-# terminal 1: mock Holded on port 8788
-node worker/test/mock-holded.mjs 8788
+*   El estado "en pausa" que devuelve Holded no está documentado en la especificación de la API v2, que solo lista `running` y `done`. El Worker asume que sigue siendo `paused`, como en la v1.
+*   El logo se sirve desde `app.holded.com` a partir de una ruta que devuelve Holded. Ese host se ha observado, no está documentado.
+*   El Worker lee como máximo 5 páginas de 200 fichajes por consulta y 25 páginas de empleados. En una empresa muy grande, los fichajes más antiguos de la ventana consultada pueden quedar fuera.
+*   Una jornada que empezó antes de medianoche cuenta en el total de hoy solo las horas desde las 00:00.
+*   Mientras una sesión está en pausa, su tiempo sigue sumando al total de hoy.
+*   Una acción de fichaje fallida muestra su error hasta la siguiente acción o hasta descartarlo, y refresca los tiempos de esa empresa una vez.
 
-# terminal 2: worker on port 8787, pointed at the mock
-npx wrangler dev --var HOLDED_API_BASE:http://127.0.0.1:8788
+## Aviso y licencia
 
-# terminal 3: frontend on port 5173, /api proxied to the worker
-npm --prefix frontend run dev
-```
+Proyecto independiente. No está afiliado a Holded ni cuenta con su respaldo. "Holded" es una marca de su titular.
 
-Add a company in the kiosk with a token such as `key-demo`. Use `key-other` for a second company. To try the production build instead, run `npm run dev` at the root and open the port `wrangler dev` prints.
-
-Checks, from the repository root:
-
-```bash
-npm run typecheck
-npm test
-npm run build
-```
-
-## Usage
-
-1. Open the kiosk URL.
-2. On first run, enter a company name and its Holded API token. The kiosk validates the token by loading the employee list.
-3. Tap "Entrada" or "Salida" next to a name. While someone is clocked in, "Pausa" and "Reanudar" pause and resume their session.
-4. Open the settings panel (gear icon) to pick a company and rename, delete or change its token, hide its employees, or change the kiosk title, or press "+" to add another company.
-
-## License
-
-MIT, see [LICENSE](LICENSE).
+MIT, consulta [LICENSE](LICENSE).
