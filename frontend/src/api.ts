@@ -22,13 +22,38 @@ export type ClockAction = 'clock-in' | 'clock-out' | 'pause' | 'unpause'
 export const KIOSK_PASSWORD_MESSAGE =
   'El kiosko está protegido con contraseña y el navegador no la ha enviado o ha dejado de ser válida. Recarga la página e introduce la contraseña del kiosko.'
 
+export interface RateLimitInfo {
+  window: 'minute' | 'month' | null
+  resetAtMs: number | null
+  retryAfterMs: number | null
+}
+
 export class ApiError extends Error {
   readonly status: number
+  readonly rateLimit: RateLimitInfo | null
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, rateLimit: RateLimitInfo | null = null) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.rateLimit = rateLimit
+  }
+}
+
+function seconds(headers: Headers, name: string): number | null {
+  const raw = headers.get(name)
+  const value = raw == null || raw.trim() === '' ? NaN : Number(raw)
+  return Number.isFinite(value) && value >= 0 ? value : null
+}
+
+export function parseRateLimit(headers: Headers): RateLimitInfo {
+  const window = headers.get('X-RateLimit-Window')?.trim().toLowerCase()
+  const reset = seconds(headers, 'X-RateLimit-Reset')
+  const retryAfter = seconds(headers, 'Retry-After')
+  return {
+    window: window === 'month' || window === 'minute' ? window : null,
+    resetAtMs: reset == null ? null : reset * 1000,
+    retryAfterMs: retryAfter == null ? null : retryAfter * 1000
   }
 }
 
@@ -54,7 +79,7 @@ async function request<T>(token: string, path: string, method: 'GET' | 'POST' = 
       : res.status === 401
         ? KIOSK_PASSWORD_MESSAGE
         : `Error ${res.status}`
-    throw new ApiError(res.status, message)
+    throw new ApiError(res.status, message, res.status === 429 ? parseRateLimit(res.headers) : null)
   }
 
   try {
@@ -97,6 +122,9 @@ export function clock(token: string, employeeId: string, action: ClockAction): P
 export function describeError(e: unknown): string {
   if (e instanceof ApiError && e.status === 401 && e.message === 'Sealed token is not valid for this kiosk') {
     return 'Este kiosko ya no reconoce el token guardado de la empresa. Vuelve a introducir la clave de Holded en Ajustes, con "Cambiar token".'
+  }
+  if (e instanceof ApiError && e.status === 429 && e.rateLimit?.window === 'month') {
+    return 'Se ha agotado la cuota mensual de llamadas a la API de Holded.'
   }
   if (e instanceof ApiError && e.status === 429) {
     return e.message.startsWith('Holded request failed')

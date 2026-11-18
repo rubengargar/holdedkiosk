@@ -29,7 +29,7 @@ function memoryStorage() {
 let wrappers: VueWrapper[]
 
 async function mountPanel(...ids: string[]) {
-  const accounts = ids.map(id => ({ id, name: `Empresa ${id}`, token: `sealed.${id}`, hiddenEmployeeIds: [], logo: null }))
+  const accounts = ids.map(id => ({ id, name: `Empresa ${id}`, token: `sealed.${id}`, hiddenEmployeeIds: [], logo: null, refreshMinutes: 30 }))
   localStorage.setItem('kiosk_accounts', JSON.stringify(accounts))
   const { useKiosk } = await import('./kiosk')
   let kiosk!: Kiosk
@@ -49,6 +49,7 @@ async function mountPanel(...ids: string[]) {
             refreshInfo: kiosk.refreshInfo,
             onSelect: kiosk.setActive,
             onRename: kiosk.renameAccount,
+            onSetRefresh: kiosk.setRefreshMinutes,
             onToggleHidden: kiosk.toggleHidden,
             onDelete: kiosk.deleteAccount
           })
@@ -98,6 +99,21 @@ describe('settings panel', () => {
     expect(kiosk().activeId.value).toBe('b')
     expect(selectedTabs(wrapper).map(t => t.attributes('title'))).toEqual(['Empresa b'])
     expect((wrapper.get('#accountNameInput').element as HTMLInputElement).value).toBe('Empresa b')
+  })
+
+  it('shows the four refresh options with the estimate, and choosing one saves it for that company', async () => {
+    const { wrapper, kiosk } = await mountPanel('a', 'b')
+    const radios = () => wrapper.findAll('[role="radio"]')
+
+    expect(radios().map(r => r.text())).toEqual(['15 min', '30 min', '60 min', 'Solo manual'])
+    expect(radios().filter(r => r.attributes('aria-checked') === 'true').map(r => r.text())).toEqual(['30 min'])
+    expect(companySettings(wrapper).text()).toContain('Unas 440 llamadas al mes')
+
+    await radios()[3].trigger('click')
+
+    expect(kiosk().accounts.value.map(a => a.refreshMinutes)).toEqual([0, 30])
+    expect(companySettings(wrapper).text()).toContain('Unas 0 llamadas al mes')
+    expect(companySettings(wrapper).text()).toContain('unas 22 de la lista de empleados')
   })
 
   it('the plus button swaps company settings for the add form and focuses its first input', async () => {

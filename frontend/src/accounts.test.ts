@@ -48,7 +48,7 @@ describe('legacy migration', () => {
   })
 
   it('does not duplicate an account whose token is already stored', () => {
-    const existing: Account = { id: 'x', name: 'Mi empresa', token: 'tok-1', hiddenEmployeeIds: [] }
+    const existing: Account = { id: 'x', name: 'Mi empresa', token: 'tok-1', hiddenEmployeeIds: [], refreshMinutes: 30 }
     const store = memoryStore({ kiosk_accounts: JSON.stringify([existing]), holded_token: 'tok-1' })
 
     expect(loadAccounts(store)).toEqual([existing])
@@ -68,8 +68,8 @@ describe('storage', () => {
   it('round-trips accounts', () => {
     const store = memoryStore()
     const accounts: Account[] = [
-      { id: 'a', name: 'Uno', token: 't1', hiddenEmployeeIds: ['e1'] },
-      { id: 'b', name: 'Dos', token: 't2', hiddenEmployeeIds: [] }
+      { id: 'a', name: 'Uno', token: 't1', hiddenEmployeeIds: ['e1'], refreshMinutes: 15 },
+      { id: 'b', name: 'Dos', token: 't2', hiddenEmployeeIds: [], refreshMinutes: 0 }
     ]
 
     saveAccounts(store, accounts)
@@ -81,7 +81,7 @@ describe('storage', () => {
     'round-trips the logo %s',
     logo => {
       const store = memoryStore()
-      const account: Account = { id: 'a', name: 'Uno', token: 't1', hiddenEmployeeIds: [], logo }
+      const account: Account = { id: 'a', name: 'Uno', token: 't1', hiddenEmployeeIds: [], logo, refreshMinutes: 60 }
       saveAccounts(store, [account])
       expect(loadAccounts(store)).toEqual([account])
     }
@@ -91,14 +91,21 @@ describe('storage', () => {
     const store = memoryStore()
 
     store.setItem('kiosk_accounts', JSON.stringify([{ id: 'b', name: 'Dos', token: 't2', hiddenEmployeeIds: [] }]))
-    expect(loadAccounts(store)).toEqual([{ id: 'b', name: 'Dos', token: 't2', hiddenEmployeeIds: [] }])
+    expect(loadAccounts(store)).toEqual([{ id: 'b', name: 'Dos', token: 't2', hiddenEmployeeIds: [], refreshMinutes: 30 }])
+  })
+
+  it.each([[undefined], [7], ['30'], [null]])('gives an account stored with refreshMinutes %s the default of 30', refreshMinutes => {
+    const store = memoryStore()
+    store.setItem('kiosk_accounts', JSON.stringify([{ id: 'b', name: 'Dos', token: 't2', hiddenEmployeeIds: [], refreshMinutes }]))
+
+    expect(loadAccounts(store)[0].refreshMinutes).toBe(30)
   })
 
   it('restores the active account, falling back to the first one', () => {
     const store = memoryStore()
     const accounts: Account[] = [
-      { id: 'a', name: 'Uno', token: 't1', hiddenEmployeeIds: [] },
-      { id: 'b', name: 'Dos', token: 't2', hiddenEmployeeIds: [] }
+      { id: 'a', name: 'Uno', token: 't1', hiddenEmployeeIds: [], refreshMinutes: 30 },
+      { id: 'b', name: 'Dos', token: 't2', hiddenEmployeeIds: [], refreshMinutes: 0 }
     ]
 
     expect(loadActiveAccountId(store, accounts)).toBe('a')

@@ -124,3 +124,34 @@ describe('a 401 from the Worker without a body', () => {
     expect(message).not.toContain('Vuelve a introducir')
   })
 })
+
+describe('429 rate-limit headers', () => {
+  it('reads the window, reset and Retry-After into the ApiError', async () => {
+    stubResponse(
+      new Response('{"error":"Holded request failed"}', {
+        status: 429,
+        headers: { 'X-RateLimit-Window': 'month', 'X-RateLimit-Reset': '1790000000', 'Retry-After': '90' }
+      })
+    )
+    const { getEmployees, ApiError } = await loadApi('https://worker.test')
+
+    const error = await getEmployees('t').catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as InstanceType<typeof ApiError>).rateLimit).toEqual({
+      window: 'month',
+      resetAtMs: 1790000000 * 1000,
+      retryAfterMs: 90_000
+    })
+  })
+
+  it('leaves unknown or missing values null', async () => {
+    const { parseRateLimit } = await loadApi('https://worker.test')
+
+    expect(parseRateLimit(new Headers({ 'X-RateLimit-Window': 'week', 'Retry-After': 'soon' }))).toEqual({
+      window: null,
+      resetAtMs: null,
+      retryAfterMs: null
+    })
+  })
+})

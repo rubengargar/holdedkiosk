@@ -1,10 +1,15 @@
+import { DEFAULT_REFRESH_MINUTES, isRefreshMinutes, type RefreshMinutes } from './refresh'
+
 export interface Account {
   id: string
   name: string
   token: string
   hiddenEmployeeIds: string[]
   logo?: string | null
+  refreshMinutes: RefreshMinutes
 }
+
+type StoredAccount = Omit<Account, 'refreshMinutes'> & { refreshMinutes?: unknown }
 
 export type KeyValueStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 
@@ -26,7 +31,7 @@ function parseJson(raw: string | null): unknown {
   }
 }
 
-function isAccount(value: unknown): value is Account {
+function isStoredAccount(value: unknown): value is StoredAccount {
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
   return (
@@ -41,7 +46,11 @@ function isAccount(value: unknown): value is Account {
 
 function readAccounts(store: KeyValueStore): Account[] {
   const parsed = parseJson(store.getItem(ACCOUNTS_KEY))
-  return Array.isArray(parsed) ? parsed.filter(isAccount) : []
+  if (!Array.isArray(parsed)) return []
+  return parsed.filter(isStoredAccount).map(account => ({
+    ...account,
+    refreshMinutes: isRefreshMinutes(account.refreshMinutes) ? account.refreshMinutes : DEFAULT_REFRESH_MINUTES
+  }))
 }
 
 export function saveAccounts(store: KeyValueStore, accounts: Account[]): void {
@@ -59,7 +68,8 @@ export function migrateLegacy(store: KeyValueStore): void {
       id: newAccountId(),
       name: 'Empresa 1',
       token,
-      hiddenEmployeeIds: Array.isArray(hidden) ? hidden.filter((id): id is string => typeof id === 'string') : []
+      hiddenEmployeeIds: Array.isArray(hidden) ? hidden.filter((id): id is string => typeof id === 'string') : [],
+      refreshMinutes: DEFAULT_REFRESH_MINUTES
     })
     saveAccounts(store, accounts)
   }

@@ -3,10 +3,12 @@ import { mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h } from 'vue'
 import type { AccountInfo, Employee, TimeEntry } from './api'
+import { trackedMs } from './board'
 
 type Kiosk = ReturnType<typeof import('./kiosk').useKiosk>
 
 const MIN = 60_000
+const HOUR = 60 * MIN
 const NOON = new Date(2026, 5, 10, 12, 0, 0).getTime()
 const ANA: Employee = { id: 'e1', name: 'Ana' }
 const BEA: Employee = { id: 'e2', name: 'Bea' }
@@ -32,6 +34,7 @@ interface World {
   info: AccountInfo
   infoStatus: number
   unavailable: boolean
+  limit: { window: 'minute' | 'month'; retryAfter?: number; reset?: number } | null
 }
 
 let world: World
@@ -39,8 +42,8 @@ let requests: Request[]
 let useKiosk: typeof import('./kiosk').useKiosk
 let mounted: { unmount: () => void }[]
 
-const reply = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+const reply = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
+  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } })
 
 async function fakeFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const url = new URL(input)
@@ -59,6 +62,14 @@ async function fakeFetch(input: string, init: RequestInit = {}): Promise<Respons
   }
   if (url.pathname === '/api/account') {
     return world.infoStatus === 200 ? reply(world.info) : reply({ error: 'Holded request failed', detail: 'Forbidden' }, world.infoStatus)
+  }
+  if (world.limit && method === 'GET' && (url.pathname === '/api/times' || url.pathname === '/api/employees')) {
+    const { window, retryAfter, reset } = world.limit
+    return reply({ error: 'Holded request failed', detail: 'Too many requests' }, 429, {
+      'X-RateLimit-Window': window,
+      ...(retryAfter === undefined ? {} : { 'Retry-After': String(retryAfter) }),
+      ...(reset === undefined ? {} : { 'X-RateLimit-Reset': String(reset) })
+    })
   }
   if (method === 'POST') {
     const action = url.pathname.split('/').pop() ?? ''
@@ -80,6 +91,23 @@ function memoryStorage() {
 
 const take = () => requests.splice(0).map(r => `${r.method} ${r.path}`)
 const settle = () => vi.advanceTimersByTimeAsync(0)
+const touch = () => document.dispatchEvent(new Event('pointerdown'))
+const count = (calls: string[], call: string) => calls.filter(c => c === call).length
+const TIMES = 'GET /api/times'
+const EMPLOYEES = 'GET /api/employees'
+
+// Advances in half-hour steps, touching the kiosk after each step so it stays in use.
+async function advanceInUse(ms: number, step = 30 * MIN) {
+  for (let left = ms; left > 0; left -= step) {
+    await vi.advanceTimersByTimeAsync(Math.min(step, left))
+    touch()
+  }
+}
+
+function setRefresh(refreshMinutes: number) {
+  const stored = JSON.parse(localStorage.getItem('kiosk_accounts') ?? '[]') as object[]
+  localStorage.setItem('kiosk_accounts', JSON.stringify(stored.map(a => ({ ...a, refreshMinutes }))))
+}
 
 function setVisibility(value: 'visible' | 'hidden') {
   Object.defineProperty(document, 'visibilityState', { value, configurable: true })
@@ -127,7 +155,8 @@ beforeEach(async () => {
     failingActions: new Set(),
     info: { name: 'Acme Holded', logoUrl: 'https://app.holded.com/box/account/abc' },
     infoStatus: 200,
-    unavailable: false
+    unavailable: false,
+    limit: null
   }
   requests = []
   mounted = []
@@ -148,42 +177,191 @@ describe('call budget', () => {
   it('loads employees and times once on first load', async () => {
     await mountKiosk()
 
-    expect(take().sort()).toEqual(['GET /api/employees', 'GET /api/times'])
+    expect(take().sort()).toEqual([EMPLOYEES, TIMES])
   })
 
-  it('fetches only times on a poll tick', async () => {
+  it('spends 16 times calls and no employees call in 8 hours of use at the default 30 minutes', async () => {
     await mountKiosk()
     take()
+    touch()
 
-    await vi.advanceTimersByTimeAsync(2 * MIN)
-
-    expect(take()).toEqual(['GET /api/times'])
-  })
-
-  it('also fetches employees on a poll after 15 minutes', async () => {
-    await mountKiosk()
-    take()
-
-    await vi.advanceTimersByTimeAsync(16 * MIN)
+    for (let hour = 1; hour <= 8; hour++) {
+      await vi.advanceTimersByTimeAsync(HOUR)
+      touch()
+    }
     const calls = take()
 
-    expect(calls.filter(call => call === 'GET /api/employees')).toHaveLength(1)
-    expect(calls.filter(call => call === 'GET /api/times')).toHaveLength(8)
+    expect(count(calls, TIMES)).toBe(16)
+    expect(count(calls, EMPLOYEES)).toBeLessThanOrEqual(1)
+    expect(calls).toHaveLength(16)
   })
 
-  it('fetches nothing when switching to a company loaded less than 30 seconds ago', async () => {
+  it('refreshes every 15 minutes when the company asks for it', async () => {
+    setRefresh(15)
+    await mountKiosk()
+    take()
+    touch()
+
+    await advanceInUse(HOUR)
+
+    expect(count(take(), TIMES)).toBe(4)
+  })
+
+  it('makes no call once nobody has touched the kiosk for two hours, however long it stays visible', async () => {
+    await mountKiosk()
+    take()
+    touch()
+    await vi.advanceTimersByTimeAsync(2 * HOUR)
+    take()
+
+    await vi.advanceTimersByTimeAsync(72 * HOUR)
+
+    expect(take()).toEqual([])
+  })
+
+  it('makes exactly one times call on the first touch after idle', async () => {
+    await mountKiosk()
+    take()
+    touch()
+    await vi.advanceTimersByTimeAsync(3 * HOUR)
+    take()
+
+    touch()
+    await settle()
+    expect(take()).toEqual([TIMES])
+
+    touch()
+    touch()
+    await settle()
+    expect(take()).toEqual([])
+  })
+
+  it('makes no call on the first touch after idle when the data is still fresh', async () => {
+    await mountKiosk()
+    take()
+
+    touch()
+    await settle()
+
+    expect(take()).toEqual([])
+  })
+
+  it('refreshes employees once after 24 hours', async () => {
+    await mountKiosk()
+    take()
+    touch()
+
+    await advanceInUse(25 * HOUR)
+    const calls = take()
+
+    expect(count(calls, EMPLOYEES)).toBe(1)
+    expect(count(calls, TIMES)).toBe(50)
+  })
+
+  it('refreshes employees with the first touch after more than 24 hours idle, along with times', async () => {
+    await mountKiosk()
+    take()
+
+    await vi.advanceTimersByTimeAsync(30 * HOUR)
+    expect(take()).toEqual([])
+    touch()
+    await settle()
+
+    expect(take().sort()).toEqual([EMPLOYEES, TIMES])
+  })
+
+  it('makes no background call in manual mode while in use, but still refreshes stale data on the first touch after idle', async () => {
+    setRefresh(0)
+    await mountKiosk()
+    take()
+    touch()
+
+    await advanceInUse(5 * HOUR)
+    expect(take()).toEqual([])
+
+    await vi.advanceTimersByTimeAsync(3 * HOUR)
+    touch()
+    await settle()
+    expect(take()).toEqual([TIMES])
+  })
+
+  it('fetches nothing when switching to a company loaded less than 30 minutes ago', async () => {
     seedAccounts('a', 'b')
     const kiosk = await mountKiosk()
     kiosk.setActive('b')
     await settle()
     expect(take()).toHaveLength(4)
 
+    await vi.advanceTimersByTimeAsync(29 * MIN)
     kiosk.setActive('a')
     await settle()
     kiosk.setActive('b')
     await settle()
 
     expect(take()).toEqual([])
+  })
+
+  it('refreshes a company on switching to it only when its data is older than its interval', async () => {
+    seedAccounts('a', 'b')
+    const kiosk = await mountKiosk()
+    kiosk.setActive('b')
+    await settle()
+    take()
+
+    await vi.advanceTimersByTimeAsync(31 * MIN)
+    kiosk.setActive('a')
+    await settle()
+
+    expect(take()).toEqual([TIMES])
+  })
+
+  it('does not refresh on becoming visible while the data is fresh', async () => {
+    await mountKiosk()
+    touch()
+    take()
+
+    setVisibility('hidden')
+    await vi.advanceTimersByTimeAsync(10 * MIN)
+    setVisibility('visible')
+    await settle()
+
+    expect(take()).toEqual([])
+  })
+
+  it('refreshes once on becoming visible when the data is older than the interval and the kiosk is in use', async () => {
+    await mountKiosk()
+    touch()
+    take()
+
+    setVisibility('hidden')
+    await vi.advanceTimersByTimeAsync(45 * MIN)
+    setVisibility('visible')
+    await settle()
+
+    expect(take()).toEqual([TIMES])
+  })
+
+  it('does not poll while the page is hidden', async () => {
+    await mountKiosk()
+    touch()
+    take()
+
+    setVisibility('hidden')
+    await vi.advanceTimersByTimeAsync(2 * HOUR - MIN)
+
+    expect(take()).toEqual([])
+  })
+
+  it('makes no call across a day rollover and counts the running time from midnight', async () => {
+    setRefresh(0)
+    world.times = () => [{ ...running('e1'), start: NOON - 5 * HOUR }]
+    const kiosk = await mountKiosk()
+    take()
+
+    await vi.advanceTimersByTimeAsync(13 * HOUR)
+
+    expect(take()).toEqual([])
+    expect(trackedMs(kiosk.statuses.value.get('e1'), kiosk.now.value)).toBe(HOUR)
   })
 
   it('sends one POST and no reads for a clock action', async () => {
@@ -204,39 +382,26 @@ describe('call budget', () => {
 
     await kiosk.clock(ANA, 'clock-in')
 
-    expect(take()).toEqual(['POST /api/employees/e1/clock-in', 'GET /api/times'])
+    expect(take()).toEqual(['POST /api/employees/e1/clock-in', TIMES])
     expect(kiosk.statuses.value.get('e1')?.runningSince).toBe(NOON - 60 * MIN)
   })
 
-  it('does not poll while the page is hidden', async () => {
-    await mountKiosk()
+  it('manual refresh reloads employees and times', async () => {
+    const kiosk = await mountKiosk()
     take()
 
-    setVisibility('hidden')
-    await vi.advanceTimersByTimeAsync(10 * MIN)
-
-    expect(take()).toEqual([])
-  })
-
-  it('does not fetch times again on the poll right after becoming visible', async () => {
-    await mountKiosk()
-    take()
-
-    await vi.advanceTimersByTimeAsync(2 * MIN - 1000)
-    setVisibility('visible')
+    kiosk.refresh()
     await settle()
-    expect(take()).toEqual(['GET /api/times'])
 
-    await vi.advanceTimersByTimeAsync(1000)
-
-    expect(take()).toEqual([])
+    expect(take().sort()).toEqual([EMPLOYEES, TIMES])
   })
 
   it('drops a times response requested before a clock action finished', async () => {
     const kiosk = await mountKiosk()
+    touch()
     let release: (entries: TimeEntry[]) => void = () => {}
     world.times = () => new Promise<TimeEntry[]>(resolve => (release = resolve))
-    await vi.advanceTimersByTimeAsync(2 * MIN)
+    await vi.advanceTimersByTimeAsync(30 * MIN)
 
     await vi.advanceTimersByTimeAsync(1000)
     await kiosk.clock(ANA, 'clock-in')
@@ -244,6 +409,164 @@ describe('call budget', () => {
     await settle()
 
     expect(kiosk.statuses.value.get('e1')?.runningSince).not.toBeNull()
+  })
+})
+
+describe('persisted state', () => {
+  const stored = () => JSON.parse(localStorage.getItem('kiosk_state') ?? 'null') as Record<string, unknown> | null
+
+  it('costs zero calls on a reload while the data is fresh', async () => {
+    await mountKiosk()
+    take()
+    mounted.forEach(wrapper => wrapper.unmount())
+    await vi.advanceTimersByTimeAsync(10 * MIN)
+
+    const kiosk = await mountKiosk()
+    touch()
+    await settle()
+
+    expect(take()).toEqual([])
+    expect(kiosk.activeState.value?.employees).toEqual([ANA, BEA])
+  })
+
+  it('costs one times call and no employees call on a reload with stale times', async () => {
+    await mountKiosk()
+    take()
+    mounted.forEach(wrapper => wrapper.unmount())
+    await vi.advanceTimersByTimeAsync(40 * MIN)
+
+    await mountKiosk()
+
+    expect(take()).toEqual([TIMES])
+  })
+
+  it('keeps running entries across a reload', async () => {
+    world.times = () => [running('e1')]
+    await mountKiosk()
+    mounted.forEach(wrapper => wrapper.unmount())
+
+    const kiosk = await mountKiosk()
+
+    expect(kiosk.statuses.value.get('e1')?.runningSince).toBe(NOON - 60 * MIN)
+  })
+
+  it('never writes a token into the state key', async () => {
+    await mountKiosk()
+
+    expect(Object.keys(stored() ?? {})).toEqual(['a'])
+    expect(localStorage.getItem('kiosk_state')).not.toContain('sealed.')
+  })
+
+  it.each([
+    ['not json', '{oops'],
+    ['not an object', '[1,2]'],
+    ['employees of the wrong type', JSON.stringify({ a: { employees: 'x', entries: [], employeesFetchedAt: NOON, timesFetchedAt: NOON } })],
+    ['an entry without a start', JSON.stringify({ a: { employees: [], entries: [{ employeeId: 'e1', end: null, paused: false }], employeesFetchedAt: NOON, timesFetchedAt: NOON } })],
+    ['a fetch time that is not a number', JSON.stringify({ a: { employees: [], entries: [], employeesFetchedAt: 'now', timesFetchedAt: NOON } })]
+  ])('ignores persisted state that is malformed (%s) and loads fresh', async (_name, raw) => {
+    localStorage.setItem('kiosk_state', raw)
+
+    const kiosk = await mountKiosk()
+
+    expect(take().sort()).toEqual([EMPLOYEES, TIMES])
+    expect(kiosk.activeState.value?.employees).toEqual([ANA, BEA])
+  })
+
+  it('removes the cached state of a deleted company and keeps the others', async () => {
+    seedAccounts('a', 'b')
+    const kiosk = await mountKiosk()
+    kiosk.setActive('b')
+    await settle()
+    expect(Object.keys(stored() ?? {}).sort()).toEqual(['a', 'b'])
+
+    kiosk.deleteAccount('b')
+
+    expect(Object.keys(stored() ?? {})).toEqual(['a'])
+  })
+})
+
+describe('quota', () => {
+  const RESET = NOON + 3 * HOUR
+
+  it('stops background refresh after a month-window 429 until the reset, shows the message, and still sends clock actions', async () => {
+    const kiosk = await mountKiosk()
+    touch()
+    take()
+    world.limit = { window: 'month', reset: RESET / 1000 }
+
+    await vi.advanceTimersByTimeAsync(30 * MIN)
+    expect(take()).toEqual([TIMES])
+    expect(kiosk.quotaMessage.value).toContain('cuota mensual')
+    expect(kiosk.quotaMessage.value).toContain('app de Holded')
+    expect(kiosk.activeState.value?.error).toBe('')
+
+    await advanceInUse(90 * MIN)
+    expect(take()).toEqual([])
+
+    await kiosk.clock(ANA, 'clock-in')
+    expect(take()).toEqual(['POST /api/employees/e1/clock-in'])
+
+    world.limit = null
+    await advanceInUse(70 * MIN)
+    expect(count(take(), TIMES)).toBe(1)
+    expect(kiosk.quotaMessage.value).toBe('')
+  })
+
+  it('falls back to the start of next month when the 429 has no reset header', async () => {
+    const kiosk = await mountKiosk()
+    touch()
+    world.limit = { window: 'month' }
+    await vi.advanceTimersByTimeAsync(30 * MIN)
+    take()
+
+    expect(kiosk.activeState.value?.quotaUntil).toBe(new Date(2026, 6, 1).getTime())
+  })
+
+  it('still tries once on a manual refresh while the quota is exhausted', async () => {
+    const kiosk = await mountKiosk()
+    touch()
+    world.limit = { window: 'month', reset: RESET / 1000 }
+    await vi.advanceTimersByTimeAsync(30 * MIN)
+    take()
+
+    kiosk.refresh()
+    await settle()
+
+    expect(take().sort()).toEqual([EMPLOYEES, TIMES])
+    expect(kiosk.quotaMessage.value).toContain('cuota mensual')
+  })
+
+  it('does not follow a failed clock action with a times read while the quota is exhausted', async () => {
+    const kiosk = await mountKiosk()
+    touch()
+    world.limit = { window: 'month', reset: RESET / 1000 }
+    await vi.advanceTimersByTimeAsync(30 * MIN)
+    take()
+    world.failingActions.add('clock-in')
+
+    await kiosk.clock(ANA, 'clock-in')
+
+    expect(take()).toEqual(['POST /api/employees/e1/clock-in'])
+  })
+
+  it('backs off for Retry-After after a minute-window 429 and shows the temporary message', async () => {
+    const kiosk = await mountKiosk()
+    touch()
+    take()
+    world.limit = { window: 'minute', retryAfter: 150 }
+
+    await vi.advanceTimersByTimeAsync(30 * MIN)
+    expect(take()).toEqual([TIMES])
+    expect(kiosk.activeState.value?.error).toContain('limitando')
+    expect(kiosk.quotaMessage.value).toBe('')
+
+    world.limit = null
+    await vi.advanceTimersByTimeAsync(2 * MIN)
+    expect(take()).toEqual([])
+
+    await vi.advanceTimersByTimeAsync(MIN)
+    expect(take()).toEqual([TIMES])
+    expect(kiosk.activeState.value?.error).toBe('')
   })
 })
 
@@ -288,7 +611,9 @@ describe('paused state', () => {
     world.times = () => [running('e1')]
     await kiosk.clock(ANA, 'pause')
 
-    await vi.advanceTimersByTimeAsync(2 * MIN)
+    await vi.advanceTimersByTimeAsync(1000)
+    kiosk.refresh()
+    await settle()
 
     expect(pausedOf(kiosk, 'e1')).toBe(true)
   })
@@ -296,10 +621,14 @@ describe('paused state', () => {
   it('forgets the pause once the server shows no running entry', async () => {
     const kiosk = await mountKiosk()
     await kiosk.clock(ANA, 'pause')
-    await vi.advanceTimersByTimeAsync(2 * MIN)
+    await vi.advanceTimersByTimeAsync(1000)
+    kiosk.refresh()
+    await settle()
 
     world.times = () => [running('e1')]
-    await vi.advanceTimersByTimeAsync(2 * MIN)
+    await vi.advanceTimersByTimeAsync(1000)
+    kiosk.refresh()
+    await settle()
 
     expect(pausedOf(kiosk, 'e1')).toBe(false)
   })
@@ -310,7 +639,9 @@ describe('paused state', () => {
     await kiosk.clock(ANA, 'pause')
 
     await kiosk.clock(ANA, 'unpause')
-    await vi.advanceTimersByTimeAsync(2 * MIN)
+    await vi.advanceTimersByTimeAsync(1000)
+    kiosk.refresh()
+    await settle()
 
     expect(pausedOf(kiosk, 'e1')).toBe(false)
   })
@@ -470,8 +801,8 @@ describe('company data from Holded', () => {
     expect(kiosk.accounts.value[0].logo).toBe('https://app.holded.com/box/account/abc')
 
     take()
-    await vi.advanceTimersByTimeAsync(2 * 60_000)
-    await vi.advanceTimersByTimeAsync(2 * 60_000)
+    touch()
+    await advanceInUse(2 * HOUR)
     expect(take()).not.toContain('GET /api/account')
   })
 

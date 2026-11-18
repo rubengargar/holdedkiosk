@@ -5,6 +5,7 @@ import type { Employee } from './api'
 import AccountAvatar from './AccountAvatar.vue'
 import AddAccountForm from './AddAccountForm.vue'
 import ChangeTokenForm from './ChangeTokenForm.vue'
+import { estimateMonthlyCalls, REFRESH_OPTIONS, type RefreshMinutes } from './refresh'
 
 const props = defineProps<{
   open: boolean
@@ -21,6 +22,7 @@ const emit = defineEmits<{
   close: []
   select: [id: string]
   rename: [id: string, name: string]
+  setRefresh: [id: string, minutes: RefreshMinutes]
   toggleHidden: [employeeId: string]
   delete: [id: string]
   'update:kioskTitle': [title: string]
@@ -33,6 +35,7 @@ const addButton = ref<HTMLButtonElement | null>(null)
 const addView = ref<HTMLElement | null>(null)
 
 const activeAccount = computed(() => props.accounts.find(a => a.id === props.activeId) ?? null)
+const estimate = computed(() => estimateMonthlyCalls(activeAccount.value?.refreshMinutes ?? 30))
 const hiddenIds = computed(() => new Set(activeAccount.value?.hiddenEmployeeIds ?? []))
 
 function select(id: string) {
@@ -179,6 +182,28 @@ watch(
 
         <p class="text-sm font-medium text-gray-700 mt-4 -mb-1">Token</p>
         <ChangeTokenForm :account-name="activeAccount.name" :submit="token => changeToken(activeAccount!.id, token)" />
+
+        <p id="refreshLabel" class="text-sm font-medium text-gray-700 mt-4 mb-1">Refresco automático</p>
+        <div role="radiogroup" aria-labelledby="refreshLabel" class="grid grid-cols-4 gap-1">
+          <button
+            v-for="option in REFRESH_OPTIONS"
+            :key="option"
+            type="button"
+            role="radio"
+            :aria-checked="activeAccount.refreshMinutes === option"
+            :class="[
+              'min-h-10 px-1 text-xs rounded',
+              activeAccount.refreshMinutes === option ? 'bg-blue-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'
+            ]"
+            @click="emit('setRefresh', activeAccount.id, option)"
+          >
+            {{ option === 0 ? 'Solo manual' : `${option} min` }}
+          </button>
+        </div>
+        <p class="text-xs text-gray-500 mt-1">
+          Unas {{ estimate.times }} llamadas al mes en segundo plano, más unas {{ estimate.employees }} de la lista de empleados
+          (10 horas de uso al día, 22 días laborables). Cada fichaje es una llamada, unas 4 por empleado y día.
+        </p>
 
         <h5 class="text-sm font-medium text-gray-700 mt-4 mb-1">Ocultar/Mostrar usuarios</h5>
         <div class="max-h-60 overflow-y-auto border rounded-md p-2">

@@ -11,7 +11,7 @@ Un kiosko de fichaje para tablet que usa Holded: cada persona toca su nombre par
 ## Qué hace
 
 *   Ficha entrada, salida, pausa y reanudación por empleado. Muestra el tiempo trabajado hoy.
-*   Admite varias empresas de Holded en un mismo kiosko. Cada una tiene su lista de empleados, sus empleados ocultos y su logo.
+*   Admite varias empresas de Holded en un mismo kiosko. Cada una tiene su lista de empleados, sus empleados ocultos, su logo y su intervalo de refresco automático (15, 30 o 60 minutos, o solo manual) en Ajustes, con una estimación de las llamadas mensuales que implica.
 *   Lista a los empleados con contrato vigente y sin fecha de baja. Puedes ocultar a quien no deba aparecer.
 *   Toma el nombre y el logo de la empresa de Holded, si la clave tiene el permiso opcional.
 *   Busca por nombre y resume cuántos hay en total, dentro y fuera.
@@ -68,14 +68,48 @@ flowchart LR
 
 El Worker sirve el frontend compilado y atiende `/api/*` desde el mismo origen, así que no hay CORS ni proyecto de Pages. Al añadir una empresa, la tablet envía la clave de Holded una sola vez a `POST /api/seal`. El Worker la valida con la misma petición de empleados de siempre, la cifra con AES-256-GCM y devuelve un token sellado (`sealed.v1.<kid>.<iv>.<cifrado>`). La tablet guarda solo ese token y lo envía en la cabecera `X-Holded-API-Key`. El Worker lo descifra y reenvía la clave real a Holded como Bearer. Por compatibilidad, el Worker sigue aceptando también una clave sin sellar.
 
-Holded permite 100 peticiones por minuto por clave. El kiosko se queda muy por debajo.
+### Cuota de llamadas de Holded
 
-*   Cada 2 minutos hace una consulta de fichajes por empresa activa, y solo mientras la página está visible. Esa única petición devuelve los fichajes de todos los empleados.
-*   Sellar la clave no añade peticiones a Holded: al añadir la empresa, la lista de empleados que ya se pedía viene en la respuesta de `/api/seal`. Una tablet con claves guardadas sin sellar las sella una vez al cargar la página, con una petición de empleados por empresa, y reintenta en la siguiente carga si falla. Nunca lo hace en las consultas periódicas.
-*   La lista de empleados se pide al añadir la empresa, en la primera vista tras cargar la página, cuando tiene más de 15 minutos y con el botón "Actualizar". No se pide en cada consulta.
-*   Cada acción de fichaje envía una petición y ninguna lectura posterior. La siguiente consulta concilia el estado.
-*   Nombre y logo se piden al añadir la empresa, al cambiar su token, al sincronizar por primera vez una empresa que no los tiene y con "Actualizar datos de Holded". Nunca en las consultas periódicas.
-*   Ante un 429, el kiosko muestra un aviso y mantiene los datos que ya tenía en pantalla.
+Además del límite por minuto, Holded fija una cuota **mensual** de llamadas por cuenta, compartida por todas las claves de API de esa cuenta ([fuente](https://www.holded.com/developers/rate-limiting)). Los planes inferiores devuelven 429 cuando se agota.
+
+| Plan | Peticiones por minuto | Llamadas al mes |
+| --- | --- | --- |
+| Starter | 60 | 500 |
+| Growth, Basic | 60 | 2.000 |
+| Standard | 120 | 7.500 |
+| Advanced | 120 | 30.000 |
+| Premium | 600 | 100.000, y después se factura el exceso |
+
+Fichar desde la app de Holded no consume cuota de API. Solo cuentan las llamadas que hace el kiosko, y también las de cualquier otra integración de la misma cuenta de Holded.
+
+**Qué gasta el kiosko.** Cada acción de fichaje es una llamada, sin lectura posterior. Las lecturas en segundo plano son escasas a propósito:
+
+*   Los fichajes de todos los empleados de la empresa activa son una sola llamada. Se refrescan cada 30 minutos por defecto, y solo mientras la página está visible y alguien la ha tocado en las últimas 2 horas. Sin interacción durante 2 horas (noches, fines de semana) el kiosko no hace ninguna llamada. La primera pulsación después de ese parón refresca si los datos tienen más antigüedad que el intervalo de la empresa.
+*   La lista de empleados se refresca como mucho una vez cada 24 horas, además de al añadir la empresa, al cambiar su token y con el botón "Actualizar". Nunca en cada consulta.
+*   Al recargar la página (Fully Kiosk la recarga al volver la red) el kiosko reutiliza los empleados y fichajes guardados en el navegador, en la clave `kiosk_state` (sin tokens), y solo llama si esos datos han caducado.
+*   Cambiar de empresa o volver a mostrar la página solo refresca si los datos son más antiguos que el intervalo de la empresa.
+*   El cambio de día no necesita ninguna llamada: los totales se calculan en local desde las 00:00.
+*   Sellar la clave no añade llamadas: la lista de empleados viene en la respuesta de `/api/seal`. Una tablet con claves sin sellar las sella una vez al cargar la página y reintenta en la siguiente carga si falla.
+*   Nombre y logo se piden al añadir la empresa, al cambiar su token, al sincronizar por primera vez una empresa que no los tiene y con "Actualizar datos de Holded".
+*   Una acción de fichaje fallida refresca los fichajes de esa empresa una vez, salvo que la cuota esté agotada.
+
+**Fórmula.** Llamadas al mes = días laborables x (acciones de fichaje por empleado y día x empleados + refrescos en segundo plano al día + 1 de la lista de empleados). Con 22 días laborables, 4 acciones por empleado y día (entrada, pausa, reanudar y salida) y 10 horas de uso al día, cada empleado gasta 88 llamadas al mes. El segundo plano gasta 462 al mes con refresco cada 30 minutos (22 x (20 + 1)) y 22 en modo manual.
+
+Empleados que caben en cada plan, con esos supuestos (se redondea hacia abajo):
+
+| Plan | Llamadas al mes | Refresco cada 30 min | Solo manual |
+| --- | --- | --- | --- |
+| Starter | 500 | 0 | 5 |
+| Growth, Basic | 2.000 | 17 | 22 |
+| Standard | 7.500 | 79 | 84 |
+| Advanced | 30.000 | 335 | 340 |
+| Premium | 100.000 | 1.131 | 1.136 |
+
+Es una estimación: cada refresco manual, cada primera pulsación tras un parón y cada recarga con datos caducados suman llamadas. En Starter elige "Solo manual" en Ajustes: con refresco cada 30 minutos el segundo plano ya consume toda la cuota.
+
+**Cuando se agota.** El Worker devuelve al kiosko las cabeceras `X-RateLimit-Window`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` y `Retry-After` de un 429 de Holded. Si la ventana es `month`, el kiosko deja de refrescar en segundo plano esa empresa hasta la hora de reinicio (o hasta el mes siguiente si no hay cabecera) y muestra un aviso permanente: fichar desde el kiosko fallará hasta que se restablezca la cuota o se amplíe el plan, y mientras tanto se puede fichar desde la app de Holded. "Actualizar" sigue intentándolo una vez. Las acciones de fichaje se siguen enviando. Si la ventana es `minute`, el kiosko muestra el aviso temporal y espera `Retry-After` segundos antes de volver a leer.
+
+**Páginas del Worker.** Holded devuelve los fichajes y los empleados por páginas de 200, y cada página es una llamada. El Worker no pide una segunda página cuando la primera ya responde: los fichajes se detienen en cuanto una página ordenada de más nuevo a más antiguo llega a antes del inicio de hoy (o viene vacía), y los empleados cuando `has_more` es falso. Una empresa de hasta 200 empleados cuesta una llamada por lectura.
 
 ## Proteger el kiosko con contraseña
 
@@ -213,10 +247,12 @@ Despliegue desde un clon, sin el botón: `npm install`, `npx wrangler login` y `
 *   La creación automática del KV con `wrangler deploy` y con el botón de despliegue se ha comprobado en la documentación de Cloudflare y en el código de Wrangler 4.164, no contra una cuenta real. Si el despliegue falla en `[[kv_namespaces]]`, crea el namespace con `npx wrangler kv namespace create KIOSK_KEYS` y pon su `id` en `wrangler.toml`. No borres el bloque: sin `KIOSK_KEYS`, las empresas con claves sin sellar siguen funcionando, pero no se pueden añadir empresas ni cambiar tokens, y los tokens ya sellados dejan de funcionar.
 *   El binding de rate limiting no se ha confirmado en el plan Free de Cloudflare. Si un despliegue falla en el bloque `[[ratelimits]]`, borra ese bloque de `wrangler.toml`. El Worker funciona sin él, sin límite de peticiones.
 *   El logo se sirve desde `app.holded.com` a partir de una ruta que devuelve Holded. Ese host se ha observado, no está documentado.
-*   El Worker lee como máximo 5 páginas de 200 fichajes por consulta y 25 páginas de empleados. En una empresa muy grande, los fichajes más antiguos de la ventana consultada pueden quedar fuera.
+*   El Worker lee como máximo 5 páginas de 200 fichajes por consulta y 25 páginas de empleados, y cada página es una llamada que cuenta para la cuota mensual de Holded. En una empresa muy grande, los fichajes más antiguos de la ventana consultada pueden quedar fuera.
+*   La cuota mensual de Holded es compartida con otras integraciones de la cuenta y, al agotarse, fichar desde el kiosko falla hasta el reinicio. El kiosko no ve la cuota restante: lo detecta al recibir el 429. Los empleados que caben por plan son una estimación con supuestos fijos (22 días, 10 horas de uso, 4 fichajes por empleado y día).
+*   El kiosko solo refresca en segundo plano la empresa activa. Con varias empresas, las demás se actualizan al seleccionarlas si sus datos han caducado.
 *   Una jornada que empezó antes de medianoche cuenta en el total de hoy solo las horas desde las 00:00.
 *   Mientras una sesión está en pausa, su tiempo sigue sumando al total de hoy.
-*   Una acción de fichaje fallida muestra su error hasta la siguiente acción o hasta descartarlo, y refresca los tiempos de esa empresa una vez.
+*   Una acción de fichaje fallida muestra su error hasta la siguiente acción o hasta descartarlo, y refresca los tiempos de esa empresa una vez, salvo que la cuota mensual esté agotada.
 
 ## Aviso y licencia
 

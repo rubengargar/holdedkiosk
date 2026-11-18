@@ -67,7 +67,7 @@ function apiHeaders(request: Request, env: Env): Headers {
 		Vary: 'Origin',
 		'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 		'Access-Control-Allow-Headers': 'x-holded-api-key, content-type',
-		'Access-Control-Expose-Headers': 'Retry-After',
+		'Access-Control-Expose-Headers': 'Retry-After, X-RateLimit-Window, X-RateLimit-Remaining, X-RateLimit-Reset',
 		'Access-Control-Max-Age': '86400',
 	});
 	const origin = request.headers.get('Origin');
@@ -95,7 +95,7 @@ function json(body: unknown, status: number, headers: Headers): Response {
 
 function errorResponse(error: unknown, headers: Headers): Response {
 	if (error instanceof HoldedError) {
-		if (error.retryAfter) headers.set('Retry-After', error.retryAfter);
+		for (const [name, value] of error.passthrough) headers.set(name, value);
 		return json({ error: 'Holded request failed', detail: error.detail }, error.status, headers);
 	}
 	if (error instanceof HttpError) return json({ error: error.message }, error.status, headers);

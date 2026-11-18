@@ -21,7 +21,7 @@ export class HoldedError extends Error {
 	constructor(
 		readonly status: number,
 		readonly detail?: string,
-		readonly retryAfter?: string
+		readonly passthrough: [string, string][] = []
 	) {
 		super(detail ?? `Holded error ${status}`);
 	}
@@ -29,6 +29,7 @@ export class HoldedError extends Error {
 
 const DEFAULT_BASE = 'https://api.holded.com';
 const LOGO_HOST = 'https://app.holded.com';
+const PASSTHROUGH_HEADERS = ['retry-after', 'x-ratelimit-window', 'x-ratelimit-remaining', 'x-ratelimit-reset'];
 const PAGE_SIZE = 200;
 const MAX_TIME_PAGES = 5;
 const MAX_EMPLOYEE_PAGES = 25;
@@ -56,7 +57,11 @@ async function call(env: Env, key: string, path: string, method: 'GET' | 'POST' 
 
 	const detail = isRecord(body) && typeof body.detail === 'string' ? body.detail : undefined;
 	const clientError = response.status >= 400 && response.status < 500;
-	throw new HoldedError(clientError ? response.status : 502, detail, response.headers.get('retry-after') ?? undefined);
+	const passthrough = PASSTHROUGH_HEADERS.flatMap((name): [string, string][] => {
+		const value = response.headers.get(name);
+		return value === null ? [] : [[name, value]];
+	});
+	throw new HoldedError(clientError ? response.status : 502, detail, passthrough);
 }
 
 interface Page {
@@ -138,7 +143,7 @@ export async function listEntriesSince(env: Env, key: string, sinceMs: number): 
 		entries.push(...parsed);
 		const newestFirst = parsed.every((entry, i) => i === 0 || parsed[i - 1].start >= entry.start);
 		const oldest = Math.min(...parsed.map((entry) => entry.start));
-		if (!page.next || (newestFirst && oldest < sinceMs)) break;
+		if (!page.next || parsed.length === 0 || (newestFirst && oldest < sinceMs)) break;
 		cursor = page.next;
 	}
 	return entries.filter((entry) => entry.start >= sinceMs || entry.end === null);

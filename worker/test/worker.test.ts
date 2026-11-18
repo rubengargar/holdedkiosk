@@ -74,6 +74,14 @@ describe('GET /api/employees', () => {
 		expect(upstreamCalls).toHaveLength(2);
 	});
 
+	it('makes one upstream call when the first page is the last', async () => {
+		stubUpstream(() => page([employee('1'.repeat(24), 'Alfa')]));
+
+		await call('/api/employees');
+
+		expect(upstreamCalls).toHaveLength(1);
+	});
+
 	it('stops following cursors after 25 pages', async () => {
 		let n = 0;
 		stubUpstream(() => page([employee('1'.repeat(24), 'Alfa')], `p${++n}`));
@@ -161,6 +169,15 @@ describe('GET /api/times', () => {
 		const response = await call(`/api/times?since=${SINCE}`);
 
 		expect(response.status).toBe(200);
+		expect(upstreamCalls).toHaveLength(1);
+	});
+
+	it('makes one upstream call when the first page is empty, even if it carries a cursor', async () => {
+		stubUpstream(() => page([], 'next'));
+
+		const response = await call(`/api/times?since=${SINCE}`);
+
+		expect(await response.json()).toEqual([]);
 		expect(upstreamCalls).toHaveLength(1);
 	});
 
@@ -280,6 +297,38 @@ describe.each(['clock-in', 'clock-out', 'pause', 'unpause'])('POST /api/employee
 
 		expect(response.status).toBe(429);
 		expect(response.headers.get('Retry-After')).toBe('17');
+	});
+
+	it('passes the monthly quota headers of a Holded 429 through and exposes them to CORS', async () => {
+		stubUpstream(() =>
+			jsonResponse({ status: 429, detail: 'quota' }, 429, {
+				'retry-after': '86400',
+				'x-ratelimit-window': 'month',
+				'x-ratelimit-remaining': '0',
+				'x-ratelimit-reset': '1790000000',
+				'x-request-id': 'internal',
+			})
+		);
+
+		const response = await call(`/api/times?since=${SINCE}`, { headers: { Origin: 'https://kiosk.test' } });
+
+		expect(response.status).toBe(429);
+		expect(response.headers.get('X-RateLimit-Window')).toBe('month');
+		expect(response.headers.get('X-RateLimit-Remaining')).toBe('0');
+		expect(response.headers.get('X-RateLimit-Reset')).toBe('1790000000');
+		expect(response.headers.get('Retry-After')).toBe('86400');
+		expect(response.headers.get('X-Request-Id')).toBeNull();
+		const exposed = (response.headers.get('Access-Control-Expose-Headers') ?? '').split(',').map((name) => name.trim().toLowerCase());
+		expect(exposed).toEqual(expect.arrayContaining(['retry-after', 'x-ratelimit-window', 'x-ratelimit-remaining', 'x-ratelimit-reset']));
+	});
+
+	it('passes the minute window through on a clock action 429', async () => {
+		stubUpstream(() => jsonResponse({ status: 429 }, 429, { 'retry-after': '12', 'x-ratelimit-window': 'minute' }));
+
+		const response = await post(ID);
+
+		expect(response.headers.get('X-RateLimit-Window')).toBe('minute');
+		expect(response.headers.get('Retry-After')).toBe('12');
 	});
 
 	it('maps an upstream 500 to 502', async () => {

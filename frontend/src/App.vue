@@ -14,9 +14,11 @@ const {
   activeState,
   statuses,
   now,
+  quotaMessage,
   addAccount,
   changeToken,
   renameAccount,
+  setRefreshMinutes,
   refreshInfo,
   deleteAccount,
   setActive,
@@ -96,6 +98,7 @@ watch(activeId, () => {
       @close="showSettingsPanel = false"
       @select="setActive"
       @rename="renameAccount"
+      @set-refresh="setRefreshMinutes"
       @toggle-hidden="toggleHidden"
       @delete="onDelete"
     />
@@ -188,6 +191,7 @@ watch(activeId, () => {
         </div>
 
         <p v-if="activeState.loading && employees.length === 0" class="text-center py-2">Cargando empleados...</p>
+        <p v-if="quotaMessage" class="mb-2 p-2 rounded-md bg-amber-50 text-amber-900 text-sm" role="alert">{{ quotaMessage }}</p>
         <p v-if="activeState.error" class="text-red-600 mb-2 text-sm" role="status">{{ activeState.error }}</p>
         <div
           v-if="activeState.actionError"

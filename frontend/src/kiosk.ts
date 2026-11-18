@@ -8,7 +8,9 @@ import {
   type Account
 } from './accounts'
 import { applyClock, buildStatuses, dayStart, isStaleTimes, mergePaused, prunePaused } from './board'
+import { loadCache, saveCache, type CachedState } from './cache'
 import {
+  ApiError,
   clock as clockRequest,
   describeError,
   getAccountInfo,
@@ -21,6 +23,17 @@ import {
   type Employee,
   type TimeEntry
 } from './api'
+import {
+  blockFromRateLimit,
+  DEFAULT_REFRESH_MINUTES,
+  isBlocked,
+  isEmployeesDue,
+  isInUse,
+  isQuotaExhausted,
+  isTimesDue,
+  NO_BLOCK,
+  type RefreshMinutes
+} from './refresh'
 
 export interface AccountState {
   employees: Employee[]
@@ -33,29 +46,35 @@ export interface AccountState {
   pausedIds: Set<string>
   clocking: Record<string, boolean>
   lastActionAt: number | null
+  quotaUntil: number | null
+  backoffUntil: number | null
 }
 
-type SyncMode = 'poll' | 'view' | 'manual'
+// 'tick' is the background timer, 'view' a page load, a switch or a first touch, 'manual' the Actualizar button.
+type SyncMode = 'tick' | 'view' | 'manual'
 
-const POLL_MS = 2 * 60_000
-const EMPLOYEES_TTL_MS = 15 * 60_000
-const TIMES_STALE_MS = 30_000
 const TICK_MS = 60_000
 const AUTO_NAME = /^Empresa \d+$/
 
-function emptyState(): AccountState {
+function emptyState(cached?: CachedState): AccountState {
   return {
-    employees: [],
-    entries: [],
-    employeesFetchedAt: null,
-    timesFetchedAt: null,
+    employees: cached?.employees ?? [],
+    entries: cached?.entries ?? [],
+    employeesFetchedAt: cached?.employeesFetchedAt ?? null,
+    timesFetchedAt: cached?.timesFetchedAt ?? null,
     loading: false,
     error: '',
     actionError: '',
     pausedIds: new Set(),
     clocking: {},
-    lastActionAt: null
+    lastActionAt: null,
+    ...NO_BLOCK
   }
+}
+
+export function quotaMessage(until: number): string {
+  const date = new Date(until).toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })
+  return `Se ha agotado la cuota mensual de llamadas a la API de Holded. Fichar desde el kiosko fallará hasta que se restablezca (${date}) o se amplíe el plan de Holded. Mientras tanto, se puede fichar desde la app de Holded.`
 }
 
 function sortByName(employees: Employee[]): Employee[] {
@@ -74,12 +93,33 @@ export function useKiosk() {
   const accounts = ref<Account[]>(loadAccounts(localStorage))
   const activeId = ref<string | null>(loadActiveAccountId(localStorage, accounts.value))
   const states = reactive<Record<string, AccountState>>({})
-  for (const account of accounts.value) states[account.id] = emptyState()
+  const cache = loadCache(localStorage, Date.now())
+  for (const account of accounts.value) states[account.id] = emptyState(cache[account.id])
   const now = ref(Date.now())
   const infoRequested = new Set<string>()
+  let lastTouchAt: number | null = null
+
+  function persistStates() {
+    const snapshot: Record<string, CachedState> = {}
+    for (const account of accounts.value) {
+      const state = states[account.id]
+      if (!state || (state.employeesFetchedAt == null && state.timesFetchedAt == null)) continue
+      snapshot[account.id] = {
+        employees: state.employees,
+        entries: state.entries,
+        employeesFetchedAt: state.employeesFetchedAt,
+        timesFetchedAt: state.timesFetchedAt
+      }
+    }
+    saveCache(localStorage, snapshot)
+  }
 
   const activeAccount = computed(() => accounts.value.find(a => a.id === activeId.value) ?? null)
   const activeState = computed<AccountState | null>(() => (activeId.value ? states[activeId.value] ?? null : null))
+  const activeQuotaMessage = computed(() => {
+    const until = activeState.value?.quotaUntil ?? null
+    return until != null && isQuotaExhausted(until, now.value) ? quotaMessage(until) : ''
+  })
   const statuses = computed(() =>
     mergePaused(
       buildStatuses(activeState.value?.entries ?? [], dayStart(now.value)),
@@ -92,6 +132,17 @@ export function useKiosk() {
     return accounts.value.find(a => a.id === account.id)?.token !== account.token
   }
 
+  function noteRateLimit(state: AccountState, e: unknown) {
+    if (!(e instanceof ApiError) || e.status !== 429) return
+    Object.assign(state, blockFromRateLimit(e.rateLimit, Date.now()))
+  }
+
+  function fail(account: Account, state: AccountState, e: unknown) {
+    if (tokenReplaced(account)) return
+    noteRateLimit(state, e)
+    state.error = isQuotaExhausted(state.quotaUntil, Date.now()) ? '' : describeError(e)
+  }
+
   async function loadTimes(account: Account, state: AccountState, at: number) {
     try {
       const entries = await getTimes(account.token, dayStart(at))
@@ -99,8 +150,9 @@ export function useKiosk() {
       state.entries = entries
       state.pausedIds = prunePaused(state.pausedIds, entries)
       state.timesFetchedAt = Date.now()
+      Object.assign(state, NO_BLOCK)
     } catch (e) {
-      if (!tokenReplaced(account)) state.error = describeError(e)
+      fail(account, state, e)
     }
   }
 
@@ -111,15 +163,12 @@ export function useKiosk() {
     if (!state || state.loading) return
 
     const at = Date.now()
-    const needEmployees =
-      mode === 'manual' ||
-      state.employeesFetchedAt == null ||
-      (mode === 'poll' && at - state.employeesFetchedAt > EMPLOYEES_TTL_MS)
-    const needTimes =
-      mode === 'manual' || state.timesFetchedAt == null || at - state.timesFetchedAt > TIMES_STALE_MS
+    if (mode !== 'manual' && isBlocked(state, at)) return
+    const needEmployees = mode === 'manual' || isEmployeesDue(at, state.employeesFetchedAt)
+    const needTimes = mode === 'manual' || isTimesDue(at, state.timesFetchedAt, account.refreshMinutes)
     if (!needEmployees && !needTimes) return
 
-    if (mode !== 'poll' && account.logo === undefined) void refreshInfo(id)
+    if (mode !== 'tick' && account.logo === undefined) void refreshInfo(id)
 
     state.loading = true
     state.error = ''
@@ -131,12 +180,13 @@ export function useKiosk() {
         state.employees = employees
         state.employeesFetchedAt = Date.now()
       } catch (e) {
-        if (!tokenReplaced(account)) state.error = describeError(e)
+        fail(account, state, e)
       }
     }
 
     await Promise.all([needEmployees && loadEmployees(), needTimes && loadTimes(account, state, at)])
     state.loading = false
+    persistStates()
   }
 
   function syncActive(mode: SyncMode) {
@@ -177,7 +227,8 @@ export function useKiosk() {
       name: name.trim() || holdedName || `Empresa ${accounts.value.length + 1}`,
       token,
       hiddenEmployeeIds: [],
-      logo: info ? info.logoUrl : null
+      logo: info ? info.logoUrl : null,
+      refreshMinutes: DEFAULT_REFRESH_MINUTES
     }
     states[account.id] = {
       ...emptyState(),
@@ -185,6 +236,7 @@ export function useKiosk() {
       employeesFetchedAt: Date.now()
     }
     accounts.value = [...accounts.value, account]
+    persistStates()
     activeId.value = account.id
   }
 
@@ -200,6 +252,7 @@ export function useKiosk() {
       state.error = ''
       const account = accounts.value.find(a => a.id === id)
       if (account) await loadTimes(account, state, Date.now())
+      persistStates()
     }
   }
 
@@ -219,6 +272,7 @@ export function useKiosk() {
         continue
       }
     }
+    persistStates()
   }
 
   function renameAccount(id: string, name: string) {
@@ -227,10 +281,15 @@ export function useKiosk() {
     accounts.value = accounts.value.map(a => (a.id === id ? { ...a, name: trimmed } : a))
   }
 
+  function setRefreshMinutes(id: string, refreshMinutes: RefreshMinutes) {
+    accounts.value = accounts.value.map(a => (a.id === id ? { ...a, refreshMinutes } : a))
+  }
+
   function deleteAccount(id: string) {
     const index = accounts.value.findIndex(a => a.id === id)
     accounts.value = accounts.value.filter(a => a.id !== id)
     delete states[id]
+    persistStates()
     if (activeId.value === id) {
       activeId.value = accounts.value[Math.min(index, accounts.value.length - 1)]?.id ?? null
     }
@@ -272,15 +331,17 @@ export function useKiosk() {
       state.entries = applyClock(state.entries, employee.id, action, doneAt)
       state.lastActionAt = doneAt
       setPaused(action === 'pause')
+      persistStates()
     } catch (e) {
       failed = true
+      noteRateLimit(state, e)
       state.actionError = `Error al fichar a ${employee.name}: ${describeError(e)}`
       if (action === 'unpause') setPaused(false)
     } finally {
       state.clocking[employee.id] = false
     }
 
-    if (failed) await loadTimes(account, state, Date.now())
+    if (failed && !isBlocked(state, Date.now())) await loadTimes(account, state, Date.now())
   }
 
   function dismissActionError() {
@@ -295,27 +356,41 @@ export function useKiosk() {
   })
 
   let tickTimer: number | undefined
-  let pollTimer: number | undefined
+
+  const inUse = (at: number) => isInUse(document.visibilityState === 'visible', lastTouchAt, at)
 
   const onVisibilityChange = () => {
-    if (document.visibilityState === 'visible') syncActive('view')
+    if (inUse(Date.now())) syncActive('view')
   }
+
+  const onTouch = () => {
+    const at = Date.now()
+    const wasIdle = !isInUse(true, lastTouchAt, at)
+    lastTouchAt = at
+    if (wasIdle) syncActive('view')
+  }
+
+  const onTick = () => {
+    const at = Date.now()
+    now.value = at
+    if (activeAccount.value && activeAccount.value.refreshMinutes > 0 && inUse(at)) syncActive('tick')
+  }
+
+  const touchOptions = { passive: true, capture: true }
 
   onMounted(() => {
     void sealLegacyAccounts().then(() => syncActive('view'))
-    tickTimer = window.setInterval(() => {
-      now.value = Date.now()
-    }, TICK_MS)
-    pollTimer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') syncActive('poll')
-    }, POLL_MS)
+    tickTimer = window.setInterval(onTick, TICK_MS)
     document.addEventListener('visibilitychange', onVisibilityChange)
+    document.addEventListener('pointerdown', onTouch, touchOptions)
+    document.addEventListener('keydown', onTouch, touchOptions)
   })
 
   onBeforeUnmount(() => {
     window.clearInterval(tickTimer)
-    window.clearInterval(pollTimer)
     document.removeEventListener('visibilitychange', onVisibilityChange)
+    document.removeEventListener('pointerdown', onTouch, touchOptions)
+    document.removeEventListener('keydown', onTouch, touchOptions)
   })
 
   return {
@@ -325,9 +400,11 @@ export function useKiosk() {
     activeState,
     statuses,
     now,
+    quotaMessage: activeQuotaMessage,
     addAccount,
     changeToken,
     renameAccount,
+    setRefreshMinutes,
     refreshInfo,
     deleteAccount,
     setActive,
